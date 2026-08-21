@@ -10,6 +10,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
+from max_to_telegram.parser import ParsedMessage
+
 
 class DedupeError(RuntimeError):
     """Raised when the delivery state cannot be read or updated safely."""
@@ -41,6 +43,7 @@ class DedupeStore:
         if self.path.exists() and not self.path.is_file():
             raise DedupeError("state database path must be a regular file")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
             connection.execute("PRAGMA journal_mode=WAL")
@@ -54,14 +57,20 @@ class DedupeStore:
                     attempts INTEGER NOT NULL DEFAULT 1,
                     updated_at TEXT NOT NULL,
                     telegram_message_ids TEXT,
-                    last_error_kind TEXT
+                    last_error_kind TEXT,
+                    message_json TEXT
                 )
                 """
             )
+            columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(deliveries)")}
+            if "message_json" not in columns:
+                connection.execute("ALTER TABLE deliveries ADD COLUMN message_json TEXT")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS deliveries_updated_at ON deliveries(updated_at)"
             )
         except sqlite3.Error as exc:
+            if connection is not None:
+                connection.close()
             raise DedupeError("could not initialize the delivery state database") from exc
         self._connection = connection
         with suppress(OSError):
@@ -119,6 +128,85 @@ class DedupeStore:
         except sqlite3.Error as exc:
             _rollback(connection)
             raise DedupeError("could not claim a delivery record") from exc
+
+    def enqueue(
+        self,
+        message: ParsedMessage,
+        *,
+        now: datetime | None = None,
+    ) -> DeliveryClaim:
+        """Persist a normalized message before it enters the in-memory queue."""
+
+        if not isinstance(message, ParsedMessage):
+            raise DedupeError("outbox accepts only parsed MAX messages")
+        key = _validate_key(message.dedupe_key)
+        timestamp = _utc_iso(now)
+        serialized = _serialize_message(message)
+        connection = self._require_connection()
+        try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state, attempts FROM deliveries WHERE dedupe_key = ?", (key,)
+            ).fetchone()
+            if row is None:
+                connection.execute(
+                    """
+                    INSERT INTO deliveries (
+                        dedupe_key, state, attempts, updated_at, message_json
+                    ) VALUES (?, 'pending', 1, ?, ?)
+                    """,
+                    (key, timestamp, serialized),
+                )
+                connection.execute("COMMIT")
+                return DeliveryClaim(should_deliver=True, previous_attempts=0)
+
+            state, attempts = str(row[0]), int(row[1])
+            if state == "delivered":
+                connection.execute("COMMIT")
+                return DeliveryClaim(should_deliver=False, previous_attempts=attempts)
+
+            connection.execute(
+                """
+                UPDATE deliveries
+                SET message_json = ?, updated_at = ?
+                WHERE dedupe_key = ?
+                """,
+                (serialized, timestamp, key),
+            )
+            connection.execute("COMMIT")
+            return DeliveryClaim(should_deliver=True, previous_attempts=attempts)
+        except sqlite3.Error as exc:
+            _rollback(connection)
+            raise DedupeError("could not enqueue a delivery record") from exc
+
+    def pending_messages(self, *, limit: int = 10_000) -> tuple[ParsedMessage, ...]:
+        """Return recoverable pending messages in durable insertion order."""
+
+        if limit < 1 or limit > 100_000:
+            raise DedupeError("pending message limit must be between 1 and 100000")
+        connection = self._require_connection()
+        try:
+            rows = connection.execute(
+                """
+                SELECT dedupe_key, message_json FROM deliveries
+                WHERE state = 'pending' AND message_json IS NOT NULL
+                ORDER BY updated_at ASC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        except sqlite3.Error as exc:
+            raise DedupeError("could not load pending delivery records") from exc
+        messages: list[ParsedMessage] = []
+        for key, payload in rows:
+            try:
+                message = _deserialize_message(str(payload))
+            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                raise DedupeError(f"pending delivery record is corrupt: {key!r}") from exc
+            if message.dedupe_key != key:
+                raise DedupeError(f"pending delivery key does not match its payload: {key!r}")
+            messages.append(message)
+        return tuple(messages)
 
     def mark_delivered(
         self,
@@ -235,3 +323,96 @@ def _as_utc(value: datetime) -> datetime:
 def _rollback(connection: sqlite3.Connection) -> None:
     with suppress(sqlite3.Error):
         connection.execute("ROLLBACK")
+
+
+def _serialize_message(message: ParsedMessage) -> str:
+    return json.dumps(
+        {
+            "chat_id": message.chat_id,
+            "message_id": message.message_id,
+            "sender_id": message.sender_id,
+            "sender_name": message.sender_name,
+            "chat_title": message.chat_title,
+            "text": message.text,
+            "timestamp": message.timestamp.isoformat(),
+            "timestamp_raw": message.timestamp_raw,
+            "update_time": message.update_time,
+            "status": message.status,
+            "message_type": message.message_type,
+            "attachments": list(message.attachments),
+            "is_outgoing": message.is_outgoing,
+            "is_service": message.is_service,
+        },
+        ensure_ascii=False,
+        separators=(",", ":"),
+    )
+
+
+def _deserialize_message(payload: str) -> ParsedMessage:
+    document = json.loads(payload)
+    if not isinstance(document, dict):
+        raise TypeError("message payload must be an object")
+    timestamp = datetime.fromisoformat(document["timestamp"])
+    if timestamp.tzinfo is None:
+        raise ValueError("message timestamp has no timezone")
+    attachments = document["attachments"]
+    if not isinstance(attachments, list) or not all(isinstance(item, str) for item in attachments):
+        raise TypeError("message attachments must be text")
+    message = ParsedMessage(
+        chat_id=_stored_int(document, "chat_id"),
+        message_id=_stored_text(document, "message_id"),
+        sender_id=_stored_optional_int(document, "sender_id"),
+        sender_name=_stored_text(document, "sender_name"),
+        chat_title=_stored_text(document, "chat_title"),
+        text=_stored_text(document, "text"),
+        timestamp=timestamp.astimezone(UTC),
+        timestamp_raw=_stored_int(document, "timestamp_raw"),
+        update_time=_stored_optional_int(document, "update_time"),
+        status=_stored_optional_text(document, "status"),
+        message_type=_stored_text(document, "message_type"),
+        attachments=tuple(attachments),
+        is_outgoing=_stored_bool(document, "is_outgoing"),
+        is_service=_stored_bool(document, "is_service"),
+    )
+    if len(message.text) > 1_000_000:
+        raise ValueError("stored message is too long")
+    return message
+
+
+def _stored_int(document: dict[str, object], key: str) -> int:
+    value = document[key]
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{key} must be an integer")
+    return value
+
+
+def _stored_optional_int(document: dict[str, object], key: str) -> int | None:
+    value = document[key]
+    if value is None:
+        return None
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise TypeError(f"{key} must be an integer")
+    return value
+
+
+def _stored_text(document: dict[str, object], key: str) -> str:
+    value = document[key]
+    if not isinstance(value, str):
+        raise TypeError(f"{key} must be text")
+    return value
+
+
+def _stored_optional_text(document: dict[str, object], key: str) -> str | None:
+    value = document[key]
+    if value is None:
+        return None
+    if not isinstance(value, str):
+        raise TypeError(f"{key} must be text")
+    return value
+
+
+def _stored_bool(document: dict[str, object], key: str) -> bool:
+    value = document[key]
+    if not isinstance(value, bool):
+        raise TypeError(f"{key} must be a boolean")
+    return value
