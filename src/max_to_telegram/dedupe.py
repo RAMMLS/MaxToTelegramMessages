@@ -227,7 +227,7 @@ class DedupeStore:
                 """
                 UPDATE deliveries
                 SET state = 'delivered', updated_at = ?, telegram_message_ids = ?,
-                    last_error_kind = NULL
+                    last_error_kind = NULL, message_json = NULL
                 WHERE dedupe_key = ? AND state = 'pending'
                 """,
                 (_utc_iso(now), json.dumps(list(telegram_message_ids)), key),
