@@ -99,4 +99,3 @@ def test_rejects_ambiguous_boolean(value: str) -> None:
 def test_rejects_non_tls_websocket_url() -> None:
     with pytest.raises(ConfigError, match="wss://"):
         Settings.from_env(complete_env(MAX_WS_URL="ws://api.oneme.ru/websocket"))
-

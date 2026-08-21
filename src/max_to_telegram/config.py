@@ -131,9 +131,7 @@ class Settings:
 
         settings = cls(
             max_ws_url=source.get("MAX_WS_URL", _DEFAULT_MAX_WS_URL).strip(),
-            max_app_version=source.get(
-                "MAX_APP_VERSION", _DEFAULT_MAX_APP_VERSION
-            ).strip(),
+            max_app_version=source.get("MAX_APP_VERSION", _DEFAULT_MAX_APP_VERSION).strip(),
             max_locale=source.get("MAX_LOCALE", _DEFAULT_MAX_LOCALE).strip(),
             max_viewer_id=viewer_id,
             max_auth_token=source.get("MAX_AUTH_TOKEN", "").strip() or None,
@@ -171,9 +169,7 @@ class Settings:
         if any(direct_auth_parts) and not all(direct_auth_parts):
             errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
         if not all(direct_auth_parts) and self.max_session_file is None:
-            errors.append(
-                "set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE"
-            )
+            errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
 
         if not self.discovery_mode:
             if not self.max_chat_ids:
