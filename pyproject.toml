@@ -35,6 +35,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
 markers = ["live: opt-in tests that contact public MAX infrastructure"]
 testpaths = ["tests"]
 
