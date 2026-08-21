@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import stat
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
@@ -10,7 +11,7 @@ from pathlib import Path
 from types import MappingProxyType
 from urllib.parse import urlparse
 
-from dotenv import load_dotenv
+from dotenv import find_dotenv, load_dotenv
 
 
 class ConfigError(ValueError):
@@ -23,6 +24,7 @@ _LOG_LEVELS = frozenset({"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"})
 _DEFAULT_MAX_WS_URL = "wss://api.oneme.ru/websocket"
 _DEFAULT_MAX_APP_VERSION = "26.8.8"
 _DEFAULT_MAX_LOCALE = "ru"
+_MAX_DOTENV_BYTES = 64 * 1024
 
 
 def _parse_bool(name: str, raw: str | None, *, default: bool = False) -> bool:
@@ -108,7 +110,7 @@ class Settings:
 
         if env is None:
             if load_dotenv_file:
-                load_dotenv(override=False)
+                _load_protected_dotenv()
             source: Mapping[str, str] = os.environ
         else:
             source = MappingProxyType(dict(env))
@@ -213,3 +215,21 @@ class Settings:
             "telegram_max_retries": self.telegram_max_retries,
             "log_level": self.log_level,
         }
+
+
+def _load_protected_dotenv() -> None:
+    raw_path = find_dotenv(usecwd=True)
+    if not raw_path:
+        return
+    path = Path(raw_path)
+    try:
+        file_stat = path.lstat()
+    except OSError as exc:
+        raise ConfigError("cannot inspect .env file") from exc
+    if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
+        raise ConfigError(".env must be a regular file, not a symbolic link")
+    if file_stat.st_size > _MAX_DOTENV_BYTES:
+        raise ConfigError(".env file is unexpectedly large")
+    if os.name == "posix" and stat.S_IMODE(file_stat.st_mode) & 0o077:
+        raise ConfigError(".env permissions are too broad; run chmod 600 .env")
+    load_dotenv(path, override=False)

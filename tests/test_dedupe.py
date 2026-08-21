@@ -76,6 +76,13 @@ def test_outbox_message_survives_restart(tmp_path):
         assert reopened.pending_messages() == ()
         assert reopened.enqueue(original).should_deliver is False
 
+    with closing(sqlite3.connect(path)) as connection:
+        stored = connection.execute(
+            "SELECT state, message_json FROM deliveries WHERE dedupe_key = ?",
+            (original.dedupe_key,),
+        ).fetchone()
+    assert stored == ("delivered", None)
+
 
 def test_pending_outbox_edit_replaces_same_revision_payload(tmp_path):
     first = parsed_message(text="before")

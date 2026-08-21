@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import os
+
 import pytest
 
 from max_to_telegram.config import ConfigError, Settings
@@ -110,3 +112,53 @@ def test_accepts_valid_device_id() -> None:
 def test_rejects_invalid_device_id() -> None:
     with pytest.raises(ConfigError, match="MAX_DEVICE_ID"):
         Settings.from_env(complete_env(MAX_DEVICE_ID="not-a-uuid"))
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permission bits are required")
+def test_rejects_world_readable_dotenv(tmp_path, monkeypatch) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("MAX_DISCOVERY_MODE=true\n", encoding="utf-8")
+    dotenv.chmod(0o644)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError, match="chmod 600"):
+        Settings.from_env()
+
+
+def test_loads_private_dotenv(tmp_path, monkeypatch) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "MAX_VIEWER_ID=123\nMAX_AUTH_TOKEN=" + "z" * 32 + "\nMAX_DISCOVERY_MODE=true\n",
+        encoding="utf-8",
+    )
+    dotenv.chmod(0o600)
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("MAX_VIEWER_ID", raising=False)
+    monkeypatch.delenv("MAX_AUTH_TOKEN", raising=False)
+    monkeypatch.delenv("MAX_DISCOVERY_MODE", raising=False)
+
+    settings = Settings.from_env()
+
+    assert settings.max_viewer_id == 123
+    assert settings.max_auth_token == "z" * 32
+
+
+def test_rejects_symlinked_dotenv(tmp_path, monkeypatch) -> None:
+    target = tmp_path / "secrets"
+    target.write_text("MAX_DISCOVERY_MODE=true\n", encoding="utf-8")
+    target.chmod(0o600)
+    (tmp_path / ".env").symlink_to(target)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError, match="symbolic link"):
+        Settings.from_env()
+
+
+def test_rejects_oversized_dotenv(tmp_path, monkeypatch) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("#" * (65 * 1024), encoding="utf-8")
+    dotenv.chmod(0o600)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError, match="unexpectedly large"):
+        Settings.from_env()
