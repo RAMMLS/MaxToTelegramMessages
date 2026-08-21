@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -84,6 +85,7 @@ class Settings:
     max_locale: str = _DEFAULT_MAX_LOCALE
     max_viewer_id: int | None = None
     max_auth_token: str | None = field(default=None, repr=False)
+    max_device_id: str | None = None
     max_session_file: Path | None = None
     max_chat_ids: frozenset[int] = frozenset()
     discovery_mode: bool = False
@@ -135,6 +137,7 @@ class Settings:
             max_locale=source.get("MAX_LOCALE", _DEFAULT_MAX_LOCALE).strip(),
             max_viewer_id=viewer_id,
             max_auth_token=source.get("MAX_AUTH_TOKEN", "").strip() or None,
+            max_device_id=source.get("MAX_DEVICE_ID", "").strip() or None,
             max_session_file=Path(session_raw).expanduser() if session_raw else None,
             max_chat_ids=_parse_chat_ids(source.get("MAX_CHAT_IDS")),
             discovery_mode=_parse_bool(
@@ -170,6 +173,11 @@ class Settings:
             errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
         if not all(direct_auth_parts) and self.max_session_file is None:
             errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
+        if self.max_device_id:
+            try:
+                uuid.UUID(self.max_device_id)
+            except ValueError:
+                errors.append("MAX_DEVICE_ID must be a UUID")
 
         if not self.discovery_mode:
             if not self.max_chat_ids:
@@ -196,6 +204,7 @@ class Settings:
             "max_app_version": self.max_app_version,
             "max_locale": self.max_locale,
             "auth_source": "file" if self.max_session_file else "environment",
+            "device_id_configured": bool(self.max_device_id),
             "selected_chat_count": len(self.max_chat_ids),
             "discovery_mode": self.discovery_mode,
             "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),

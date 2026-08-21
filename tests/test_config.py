@@ -99,3 +99,14 @@ def test_rejects_ambiguous_boolean(value: str) -> None:
 def test_rejects_non_tls_websocket_url() -> None:
     with pytest.raises(ConfigError, match="wss://"):
         Settings.from_env(complete_env(MAX_WS_URL="ws://api.oneme.ru/websocket"))
+
+
+def test_accepts_valid_device_id() -> None:
+    settings = Settings.from_env(complete_env(MAX_DEVICE_ID="123e4567-e89b-12d3-a456-426614174000"))
+
+    assert settings.max_device_id == "123e4567-e89b-12d3-a456-426614174000"
+
+
+def test_rejects_invalid_device_id() -> None:
+    with pytest.raises(ConfigError, match="MAX_DEVICE_ID"):
+        Settings.from_env(complete_env(MAX_DEVICE_ID="not-a-uuid"))
