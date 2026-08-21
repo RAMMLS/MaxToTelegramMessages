@@ -263,6 +263,19 @@ class DedupeStore:
         if cursor.rowcount != 1:
             raise DedupeError("delivery record was not pending")
 
+    def discard_pending(self, dedupe_key: str) -> bool:
+        """Remove an undelivered item when the current chat policy rejects it."""
+
+        key = _validate_key(dedupe_key)
+        connection = self._require_connection()
+        try:
+            cursor = connection.execute(
+                "DELETE FROM deliveries WHERE dedupe_key = ? AND state = 'pending'", (key,)
+            )
+        except sqlite3.Error as exc:
+            raise DedupeError("could not discard a pending delivery record") from exc
+        return cursor.rowcount == 1
+
     def prune(self, *, delivered_before: datetime, keep_at_most: int = 100_000) -> int:
         """Delete old delivered rows and cap retained delivered history."""
 

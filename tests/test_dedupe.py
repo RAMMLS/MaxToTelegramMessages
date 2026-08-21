@@ -235,6 +235,18 @@ def test_missing_or_already_delivered_state_cannot_be_marked(tmp_path):
             store.mark_failed("key", "network")
 
 
+def test_discard_removes_only_pending_records(tmp_path):
+    with DedupeStore(tmp_path / "state.db") as store:
+        store.claim("pending")
+        store.claim("delivered")
+        store.mark_delivered("delivered", [1])
+
+        assert store.discard_pending("pending") is True
+        assert store.discard_pending("pending") is False
+        assert store.discard_pending("delivered") is False
+        assert store.claim("delivered").should_deliver is False
+
+
 @pytest.mark.parametrize("kind", ["", " ", "not safe!", "x" * 65])
 def test_invalid_failure_kind_is_rejected(tmp_path, kind):
     with DedupeStore(tmp_path / "state.db") as store:
