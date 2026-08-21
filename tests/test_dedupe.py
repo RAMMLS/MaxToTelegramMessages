@@ -1,11 +1,35 @@
 from __future__ import annotations
 
 import os
+import sqlite3
+from contextlib import closing
 from datetime import UTC, datetime, timedelta
 
 import pytest
 
 from max_to_telegram.dedupe import DedupeError, DedupeStore
+from max_to_telegram.parser import ParsedMessage
+
+
+def parsed_message(**overrides: object) -> ParsedMessage:
+    values: dict[str, object] = {
+        "chat_id": 42,
+        "message_id": "777",
+        "sender_id": 123,
+        "sender_name": "Тестовый отправитель",
+        "chat_title": "Выбранный чат",
+        "text": "сообщение",
+        "timestamp": datetime(2026, 8, 22, tzinfo=UTC),
+        "timestamp_raw": 1_777_000_000_000,
+        "update_time": None,
+        "status": None,
+        "message_type": "USER",
+        "attachments": ("Фото",),
+        "is_outgoing": False,
+        "is_service": False,
+    }
+    values.update(overrides)
+    return ParsedMessage(**values)  # type: ignore[arg-type]
 
 
 def test_new_claim_is_deliverable_and_delivered_claim_is_not(tmp_path):
@@ -36,6 +60,115 @@ def test_pending_claim_is_retried_after_restart(tmp_path):
 
     assert retry.should_deliver is True
     assert retry.previous_attempts == 1
+
+
+def test_outbox_message_survives_restart(tmp_path):
+    path = tmp_path / "outbox.sqlite3"
+    original = parsed_message()
+    with DedupeStore(path) as store:
+        claim = store.enqueue(original)
+        assert claim.should_deliver is True
+        assert store.pending_messages() == (original,)
+
+    with DedupeStore(path) as reopened:
+        assert reopened.pending_messages() == (original,)
+        reopened.mark_delivered(original.dedupe_key, [11])
+        assert reopened.pending_messages() == ()
+        assert reopened.enqueue(original).should_deliver is False
+
+
+def test_pending_outbox_edit_replaces_same_revision_payload(tmp_path):
+    first = parsed_message(text="before")
+    corrected = parsed_message(text="after")
+    with DedupeStore(tmp_path / "state.db") as store:
+        store.enqueue(first)
+        claim = store.enqueue(corrected)
+
+        assert claim.should_deliver is True
+        assert claim.previous_attempts == 1
+        assert store.pending_messages()[0].text == "after"
+
+
+def test_different_edit_revision_is_a_second_outbox_item(tmp_path):
+    original = parsed_message()
+    edited = parsed_message(status="EDITED", update_time=1_777_000_000_100, text="edited")
+    with DedupeStore(tmp_path / "state.db") as store:
+        store.enqueue(original)
+        store.enqueue(edited)
+
+        assert store.pending_messages() == (original, edited)
+
+
+@pytest.mark.parametrize("limit", [0, -1, 100_001])
+def test_invalid_pending_limit_is_rejected(tmp_path, limit):
+    with (
+        DedupeStore(tmp_path / "state.db") as store,
+        pytest.raises(DedupeError, match="pending message limit"),
+    ):
+        store.pending_messages(limit=limit)
+
+
+def test_outbox_rejects_non_message(tmp_path):
+    with (
+        DedupeStore(tmp_path / "state.db") as store,
+        pytest.raises(DedupeError, match="only parsed"),
+    ):
+        store.enqueue("message")  # type: ignore[arg-type]
+
+
+def test_corrupt_outbox_payload_fails_closed(tmp_path):
+    path = tmp_path / "state.db"
+    message = parsed_message()
+    with DedupeStore(path) as store:
+        store.enqueue(message)
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            "UPDATE deliveries SET message_json = ? WHERE dedupe_key = ?",
+            ('{"chat_id":"wrong"}', message.dedupe_key),
+        )
+        connection.commit()
+
+    with DedupeStore(path) as reopened, pytest.raises(DedupeError, match="corrupt"):
+        reopened.pending_messages()
+
+
+def test_mismatched_outbox_key_fails_closed(tmp_path):
+    path = tmp_path / "state.db"
+    message = parsed_message()
+    with DedupeStore(path) as store:
+        store.enqueue(message)
+
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            "UPDATE deliveries SET dedupe_key = 'different' WHERE dedupe_key = ?",
+            (message.dedupe_key,),
+        )
+        connection.commit()
+
+    with DedupeStore(path) as reopened, pytest.raises(DedupeError, match="does not match"):
+        reopened.pending_messages()
+
+
+def test_legacy_database_gets_outbox_column(tmp_path):
+    path = tmp_path / "legacy.db"
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            """
+            CREATE TABLE deliveries (
+                dedupe_key TEXT PRIMARY KEY,
+                state TEXT NOT NULL,
+                attempts INTEGER NOT NULL,
+                updated_at TEXT NOT NULL,
+                telegram_message_ids TEXT,
+                last_error_kind TEXT
+            )
+            """
+        )
+        connection.commit()
+
+    with DedupeStore(path) as store:
+        store.enqueue(parsed_message())
+        assert store.pending_messages() == (parsed_message(),)
 
 
 def test_edited_revision_uses_a_distinct_key(tmp_path):
