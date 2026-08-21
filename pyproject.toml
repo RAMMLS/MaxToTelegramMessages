@@ -35,6 +35,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 asyncio_mode = "auto"
+markers = ["live: opt-in tests that contact public MAX infrastructure"]
 testpaths = ["tests"]
 
 [tool.ruff]
@@ -43,4 +44,3 @@ target-version = "py310"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
-
