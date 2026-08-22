@@ -23,6 +23,7 @@ python -m pip install -e '.[dev]'
 ruff format --check .
 ruff check .
 mypy
+mypy --platform win32 src
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
 pip-audit --strict --progress-spinner=off .
 python -m build
@@ -31,7 +32,8 @@ git diff --check
 ```
 
 - [ ] Все команды завершились успешно.
-- [ ] Проверены GitHub Actions для того же commit на Python 3.10 и 3.12.
+- [ ] Проверены GitHub Actions для того же commit на Linux/Python 3.10 и 3.12,
+      а также Windows/Python 3.12.
 - [ ] `max-to-telegram --check-max-public` вернул protocol `10` и init opcode
       `6` без чтения `.env`.
 

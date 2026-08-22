@@ -336,6 +336,7 @@ IDs; MAX chat/message IDs из dedupe key восстановить нельзя.
 ruff format --check .
 ruff check .
 mypy
+mypy --platform win32 src
 pip-audit --strict --progress-spinner=off .
 pytest
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
