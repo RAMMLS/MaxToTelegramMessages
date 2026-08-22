@@ -1,8 +1,21 @@
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
-from max_to_telegram.ci_junit_summary import main, render_annotations
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+SCRIPT = PROJECT_ROOT / "tests/ci_junit_summary.py"
+
+
+def _run_script(*args: Path) -> subprocess.CompletedProcess[str]:
+    # Interpreter and script path are repository-controlled constants.
+    return subprocess.run(  # noqa: S603
+        [sys.executable, str(SCRIPT), *(str(value) for value in args)],
+        check=False,
+        capture_output=True,
+        text=True,
+    )
 
 
 def test_emits_bounded_redacted_failure_annotation(tmp_path: Path) -> None:
@@ -17,9 +30,10 @@ def test_emits_bounded_redacted_failure_annotation(tmp_path: Path) -> None:
         encoding="utf-8",
     )
 
-    result = render_annotations(report)
+    completed = _run_script(report)
 
-    assert result == [
+    assert completed.returncode == 0
+    assert completed.stdout.splitlines() == [
         "::error title=Pytest: tests.test_lock.test_second::"
         "tests.test_lock.test_second: token <redacted> denied%25now"
     ]
@@ -29,9 +43,14 @@ def test_reports_invalid_xml_without_raising(tmp_path: Path) -> None:
     report = tmp_path / "results.xml"
     report.write_text("not XML", encoding="utf-8")
 
-    assert render_annotations(report)[0].startswith("::error title=Pytest report unavailable::")
+    completed = _run_script(report)
+
+    assert completed.returncode == 0
+    assert completed.stdout.startswith("::error title=Pytest report unavailable::")
 
 
-def test_main_rejects_missing_report_argument(capsys) -> None:
-    assert main([]) == 2
-    assert "usage:" in capsys.readouterr().err
+def test_main_rejects_missing_report_argument() -> None:
+    completed = _run_script()
+
+    assert completed.returncode == 2
+    assert "usage:" in completed.stderr

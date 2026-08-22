@@ -49,6 +49,7 @@
 - безопасный parser путей и запрет общего файла для session JSON/SQLite;
 - Windows `msvcrt` process lock и отдельный Windows/Python 3.12 CI job;
 - Windows-only timezone dependency и краткие redacted CI annotations для pytest failures;
+- CI-only JUnit formatter исключён из production wheel и оставлен в test tooling;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
