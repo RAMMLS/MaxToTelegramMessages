@@ -34,6 +34,7 @@
 - keepalive task failure немедленно прерывает blocked WebSocket receive для reconnect;
 - MAX command errors отделены от transient transport reconnect;
 - opt-in live gate для production public-probe path;
+- абсолютный MAX command deadline поверх потока unrelated frames;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
