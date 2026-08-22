@@ -7,6 +7,7 @@ from datetime import datetime, timedelta, timezone
 
 import pytest
 
+import max_to_telegram.dedupe as dedupe_module
 from max_to_telegram.dedupe import DedupeError, DedupeStore
 from max_to_telegram.parser import ParsedMessage
 
@@ -242,6 +243,27 @@ def test_open_is_idempotent_and_directory_path_is_rejected(tmp_path):
 
     with pytest.raises(DedupeError, match="regular file"):
         DedupeStore(tmp_path).open()
+
+
+@pytest.mark.skipif(dedupe_module.fcntl is None, reason="requires POSIX flock")
+def test_second_process_store_is_rejected_until_first_closes(tmp_path):
+    path = tmp_path / "state.sqlite3"
+    first = DedupeStore(path).open()
+    second = DedupeStore(path)
+    try:
+        with pytest.raises(DedupeError, match="another bridge process"):
+            second.open()
+    finally:
+        first.close()
+
+    try:
+        assert second.open() is second
+        lock_path = tmp_path / "state.sqlite3.lock"
+        assert lock_path.is_file()
+        if os.name == "posix":
+            assert lock_path.stat().st_mode & 0o777 == 0o600
+    finally:
+        second.close()
 
 
 @pytest.mark.parametrize("ids", [[], [0], [-1], [True], ["1"]])
