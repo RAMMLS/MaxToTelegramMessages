@@ -10,6 +10,7 @@ def test_source_manifest_includes_audit_and_operations_materials() -> None:
         "CHANGELOG.md",
         "CONTRIBUTING.md",
         "DEVELOPMENT.md",
+        "include .env.example",
         "RESEARCH.md",
         "SECURITY.md",
         "recursive-include deploy *.service",
@@ -21,6 +22,6 @@ def test_source_manifest_includes_audit_and_operations_materials() -> None:
 def test_source_manifest_excludes_local_secret_and_state_patterns() -> None:
     manifest = (PROJECT_ROOT / "MANIFEST.in").read_text(encoding="utf-8")
 
-    assert "global-exclude .env .env.*" in manifest
+    assert "global-exclude .env" in manifest
     assert "*.sqlite3" in manifest
     assert "*.db" in manifest
