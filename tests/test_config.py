@@ -194,6 +194,20 @@ def test_loads_private_dotenv(tmp_path, monkeypatch) -> None:
     assert settings.max_auth_token == "z" * 32
 
 
+def test_does_not_search_parent_directories_for_dotenv(tmp_path, monkeypatch) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("MAX_AUTH_TOKEN=parent-secret-must-not-load\n", encoding="utf-8")
+    dotenv.chmod(0o600)
+    nested = tmp_path / "nested"
+    nested.mkdir()
+    monkeypatch.chdir(nested)
+    monkeypatch.delenv("MAX_AUTH_TOKEN", raising=False)
+
+    settings = Settings.from_env(purpose="state")
+
+    assert settings.max_auth_token is None
+
+
 def test_rejects_symlinked_dotenv(tmp_path, monkeypatch) -> None:
     target = tmp_path / "secrets"
     target.write_text("MAX_DISCOVERY_MODE=true\n", encoding="utf-8")

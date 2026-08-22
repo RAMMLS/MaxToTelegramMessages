@@ -30,6 +30,7 @@
 - канонические opaque SHA-256 dedupe keys без MAX identifiers в delivered rows;
 - versioned SQLite outbox schema с проверкой совместимости и trusted_schema=OFF;
 - публичный MAX probe не читает `.env` и локальные credentials;
+- `.env` загружается только из текущего каталога без parent-directory search;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
