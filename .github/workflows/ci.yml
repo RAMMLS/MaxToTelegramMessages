@@ -1,0 +1,71 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 15
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            python-version: "3.10"
+            dependency-audit: false
+          - os: ubuntu-latest
+            python-version: "3.12"
+            dependency-audit: true
+          - os: windows-latest
+            python-version: "3.12"
+            dependency-audit: false
+
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+      - name: Secret pattern guard
+        shell: bash
+        run: |
+          if git grep -q -E '[0-9]{8,12}:[A-Za-z0-9_-]{30,}'; then
+            echo 'A Telegram-token-shaped value is tracked; refusing to continue.' >&2
+            exit 1
+          fi
+          if git ls-files --error-unmatch .env >/dev/null 2>&1; then
+            echo 'A real .env file is tracked; refusing to continue.' >&2
+            exit 1
+          fi
+      - name: Install
+        run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
+      - name: Ruff
+        run: ruff format --check . && ruff check .
+      - name: Mypy
+        run: mypy
+      - name: Tests
+        shell: bash
+        run: |
+          test_status=0
+          pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85 \
+            --junitxml=.pytest-results.xml || test_status=$?
+          if (( test_status != 0 )); then
+            python tests/ci_junit_summary.py .pytest-results.xml
+          fi
+          exit "$test_status"
+      - name: Package
+        run: python -m build && python -m max_to_telegram --version
+      - name: Dependency audit
+        if: matrix.dependency-audit
+        run: pip-audit --strict --progress-spinner=off .

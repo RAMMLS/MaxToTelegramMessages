@@ -1,0 +1,363 @@
+"""Environment-backed configuration with fail-closed chat filtering."""
+
+from __future__ import annotations
+
+import os
+import re
+import uuid
+from collections.abc import Mapping
+from dataclasses import dataclass, field
+from io import StringIO
+from pathlib import Path
+from types import MappingProxyType
+from typing import Literal
+from urllib.parse import urlparse
+
+from dotenv import load_dotenv
+
+from max_to_telegram.safe_files import PrivateFileError, read_private_text
+
+
+class ConfigError(ValueError):
+    """Raised when bridge configuration is unsafe or incomplete."""
+
+
+_TRUE_VALUES = frozenset({"1", "true", "yes", "on"})
+_FALSE_VALUES = frozenset({"0", "false", "no", "off"})
+_LOG_LEVELS = frozenset({"CRITICAL", "ERROR", "WARNING", "INFO", "DEBUG"})
+_DEFAULT_MAX_WS_URL = "wss://api.oneme.ru/websocket"
+_DEFAULT_MAX_APP_VERSION = "26.8.8"
+_DEFAULT_MAX_LOCALE = "ru"
+_MAX_DOTENV_BYTES = 64 * 1024
+_MAX_CHAT_IDS_CHARS = 64 * 1024
+_MAX_SELECTED_CHATS = 1_000
+_MAX_WS_URL_CHARS = 2_048
+_MAX_APP_VERSION_CHARS = 64
+_MAX_LOCALE_CHARS = 32
+_MAX_CONFIG_PATH_CHARS = 4_096
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
+_TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
+_TELEGRAM_CHAT_ID_PATTERN = re.compile(r"-?[1-9][0-9]{0,19}\Z")
+ValidationPurpose = Literal["runtime", "max_public", "telegram", "telegram_discovery", "state"]
+
+
+def is_valid_telegram_bot_token(value: str | None) -> bool:
+    return value is not None and _TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(value) is not None
+
+
+def is_valid_telegram_chat_id(value: str | None) -> bool:
+    if value is None or _TELEGRAM_CHAT_ID_PATTERN.fullmatch(value) is None:
+        return False
+    numeric = int(value)
+    return -(2**63) <= numeric <= 2**63 - 1
+
+
+def _parse_bool(name: str, raw: str | None, *, default: bool = False) -> bool:
+    if raw is None or not raw.strip():
+        return default
+    value = raw.strip().lower()
+    if value in _TRUE_VALUES:
+        return True
+    if value in _FALSE_VALUES:
+        return False
+    raise ConfigError(f"{name} must be one of: true, false, 1, 0, yes, no, on, off")
+
+
+def _parse_int(
+    name: str,
+    raw: str | None,
+    *,
+    default: int | None = None,
+    minimum: int | None = None,
+    maximum: int | None = None,
+) -> int | None:
+    if raw is None or not raw.strip():
+        return default
+    try:
+        value = int(raw.strip())
+    except ValueError as exc:
+        raise ConfigError(f"{name} must be an integer") from exc
+    if minimum is not None and value < minimum:
+        raise ConfigError(f"{name} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise ConfigError(f"{name} must be at most {maximum}")
+    return value
+
+
+def _parse_chat_ids(raw: str | None) -> frozenset[int]:
+    if raw is None or not raw.strip():
+        return frozenset()
+    if len(raw) > _MAX_CHAT_IDS_CHARS or raw.count(",") >= _MAX_SELECTED_CHATS:
+        raise ConfigError(f"MAX_CHAT_IDS must contain at most {_MAX_SELECTED_CHATS} values")
+    result: set[int] = set()
+    for item in raw.split(","):
+        value = item.strip()
+        if not value:
+            continue
+        try:
+            chat_id = int(value)
+        except ValueError as exc:
+            raise ConfigError("MAX_CHAT_IDS contains a non-numeric value") from exc
+        if chat_id == 0:
+            raise ConfigError("MAX_CHAT_IDS must not contain 0")
+        if not _INT64_MIN <= chat_id <= _INT64_MAX:
+            raise ConfigError("MAX_CHAT_IDS values must fit signed int64")
+        result.add(chat_id)
+    return frozenset(result)
+
+
+def _has_control_characters(value: str) -> bool:
+    return any(ord(character) < 32 or ord(character) == 127 for character in value)
+
+
+def _expand_config_path(name: str, value: str) -> Path:
+    if (
+        not value
+        or len(value) > _MAX_CONFIG_PATH_CHARS
+        or _has_control_characters(value)
+        or "\x00" in value
+    ):
+        raise ConfigError(f"{name} must be a non-empty path without control characters")
+    try:
+        return Path(value).expanduser()
+    except (RuntimeError, ValueError) as exc:
+        raise ConfigError(f"{name} could not be expanded safely") from exc
+
+
+@dataclass(frozen=True, slots=True)
+class Settings:
+    """Validated runtime configuration.
+
+    Secret fields are excluded from ``repr``. The chat allowlist intentionally
+    defaults to an empty set, which means "forward nothing".
+    """
+
+    max_ws_url: str = _DEFAULT_MAX_WS_URL
+    max_allow_custom_ws_url: bool = False
+    max_app_version: str = _DEFAULT_MAX_APP_VERSION
+    max_locale: str = _DEFAULT_MAX_LOCALE
+    max_viewer_id: int | None = None
+    max_auth_token: str | None = field(default=None, repr=False)
+    max_device_id: str | None = None
+    max_session_file: Path | None = None
+    max_chat_ids: frozenset[int] = frozenset()
+    discovery_mode: bool = False
+    telegram_bot_token: str | None = field(default=None, repr=False)
+    telegram_chat_id: str | None = None
+    queue_size: int = 100
+    state_db: Path = Path(".max-to-telegram.sqlite3")
+    reconnect_max_seconds: int = 10
+    telegram_max_retries: int = 5
+    log_level: str = "INFO"
+
+    @classmethod
+    def from_env(
+        cls,
+        env: Mapping[str, str] | None = None,
+        *,
+        load_dotenv_file: bool = True,
+        purpose: ValidationPurpose = "runtime",
+    ) -> Settings:
+        """Build settings from a mapping or the process environment."""
+
+        if env is None:
+            if load_dotenv_file:
+                _load_protected_dotenv()
+            source: Mapping[str, str] = os.environ
+        else:
+            source = MappingProxyType(dict(env))
+
+        session_raw = source.get("MAX_SESSION_FILE", "").strip()
+        state_source = source.get("BRIDGE_STATE_DB")
+        state_raw = ".max-to-telegram.sqlite3" if state_source is None else state_source.strip()
+        viewer_id = _parse_int(
+            "MAX_VIEWER_ID",
+            source.get("MAX_VIEWER_ID"),
+            minimum=1,
+            maximum=_INT64_MAX,
+        )
+        queue_size = _parse_int(
+            "BRIDGE_QUEUE_SIZE",
+            source.get("BRIDGE_QUEUE_SIZE"),
+            default=100,
+            minimum=1,
+            maximum=10_000,
+        )
+        reconnect_max = _parse_int(
+            "MAX_RECONNECT_MAX_SECONDS",
+            source.get("MAX_RECONNECT_MAX_SECONDS"),
+            default=10,
+            minimum=1,
+            maximum=3_600,
+        )
+        telegram_retries = _parse_int(
+            "TELEGRAM_MAX_RETRIES",
+            source.get("TELEGRAM_MAX_RETRIES"),
+            default=5,
+            minimum=0,
+            maximum=20,
+        )
+
+        settings = cls(
+            max_ws_url=source.get("MAX_WS_URL", _DEFAULT_MAX_WS_URL).strip(),
+            max_allow_custom_ws_url=_parse_bool(
+                "MAX_ALLOW_CUSTOM_WS_URL",
+                source.get("MAX_ALLOW_CUSTOM_WS_URL"),
+                default=False,
+            ),
+            max_app_version=source.get("MAX_APP_VERSION", _DEFAULT_MAX_APP_VERSION).strip(),
+            max_locale=source.get("MAX_LOCALE", _DEFAULT_MAX_LOCALE).strip(),
+            max_viewer_id=viewer_id,
+            max_auth_token=source.get("MAX_AUTH_TOKEN", "").strip() or None,
+            max_device_id=source.get("MAX_DEVICE_ID", "").strip() or None,
+            max_session_file=(
+                _expand_config_path("MAX_SESSION_FILE", session_raw) if session_raw else None
+            ),
+            max_chat_ids=_parse_chat_ids(source.get("MAX_CHAT_IDS")),
+            discovery_mode=_parse_bool(
+                "MAX_DISCOVERY_MODE", source.get("MAX_DISCOVERY_MODE"), default=False
+            ),
+            telegram_bot_token=source.get("TELEGRAM_BOT_TOKEN", "").strip() or None,
+            telegram_chat_id=source.get("TELEGRAM_CHAT_ID", "").strip() or None,
+            queue_size=queue_size if queue_size is not None else 100,
+            state_db=_expand_config_path("BRIDGE_STATE_DB", state_raw),
+            reconnect_max_seconds=reconnect_max if reconnect_max is not None else 10,
+            telegram_max_retries=telegram_retries if telegram_retries is not None else 5,
+            log_level=source.get("LOG_LEVEL", "INFO").strip().upper(),
+        )
+        settings.validate(purpose=purpose)
+        return settings
+
+    def validate(self, *, purpose: ValidationPurpose = "runtime") -> None:
+        """Reject incomplete settings before any network connection is opened."""
+
+        errors: list[str] = []
+        if purpose in {"runtime", "max_public"}:
+            try:
+                parsed_ws_url = urlparse(self.max_ws_url)
+                _ = parsed_ws_url.port
+            except ValueError:
+                parsed_ws_url = None
+            if len(self.max_ws_url) > _MAX_WS_URL_CHARS or _has_control_characters(self.max_ws_url):
+                errors.append("MAX_WS_URL is too long or contains control characters")
+            elif parsed_ws_url is None:
+                errors.append("MAX_WS_URL is malformed")
+            elif parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
+                errors.append("MAX_WS_URL must be an absolute wss:// URL")
+            elif not parsed_ws_url.hostname:
+                errors.append("MAX_WS_URL must include a valid hostname")
+            elif parsed_ws_url.username is not None or parsed_ws_url.password is not None:
+                errors.append("MAX_WS_URL must not contain user information")
+            elif parsed_ws_url.fragment:
+                errors.append("MAX_WS_URL must not contain a fragment")
+            elif re.search(r"%(?![0-9A-Fa-f]{2})", self.max_ws_url):
+                errors.append("MAX_WS_URL contains invalid percent encoding")
+            elif not self.max_allow_custom_ws_url and self.max_ws_url != _DEFAULT_MAX_WS_URL:
+                errors.append(
+                    "MAX_WS_URL must use the pinned api.oneme.ru endpoint; "
+                    "set MAX_ALLOW_CUSTOM_WS_URL=true only for reviewed protocol research"
+                )
+            if (
+                not self.max_app_version
+                or len(self.max_app_version) > _MAX_APP_VERSION_CHARS
+                or _has_control_characters(self.max_app_version)
+            ):
+                errors.append("MAX_APP_VERSION must be 1..64 characters without controls")
+            if (
+                not self.max_locale
+                or len(self.max_locale) > _MAX_LOCALE_CHARS
+                or _has_control_characters(self.max_locale)
+            ):
+                errors.append("MAX_LOCALE must be 1..32 characters without controls")
+
+        if purpose == "runtime":
+            direct_auth_parts = (self.max_viewer_id is not None, self.max_auth_token is not None)
+            if any(direct_auth_parts) and not all(direct_auth_parts):
+                errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
+            if all(direct_auth_parts) and self.max_session_file is not None:
+                errors.append(
+                    "choose either MAX_VIEWER_ID with MAX_AUTH_TOKEN or MAX_SESSION_FILE, not both"
+                )
+            if self.max_session_file is not None and self.max_session_file == self.state_db:
+                errors.append("MAX_SESSION_FILE and BRIDGE_STATE_DB must be different files")
+            if not all(direct_auth_parts) and self.max_session_file is None:
+                errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
+            if self.max_device_id:
+                try:
+                    uuid.UUID(self.max_device_id)
+                except ValueError:
+                    errors.append("MAX_DEVICE_ID must be a UUID")
+
+            if not self.discovery_mode:
+                if not self.max_chat_ids:
+                    errors.append(
+                        "MAX_CHAT_IDS must contain at least one selected chat; "
+                        "use MAX_DISCOVERY_MODE=true to discover IDs"
+                    )
+                if not self.telegram_bot_token:
+                    errors.append("TELEGRAM_BOT_TOKEN is required outside discovery mode")
+                elif not is_valid_telegram_bot_token(self.telegram_bot_token):
+                    errors.append("TELEGRAM_BOT_TOKEN is malformed")
+                if not self.telegram_chat_id:
+                    errors.append("TELEGRAM_CHAT_ID is required outside discovery mode")
+                elif not is_valid_telegram_chat_id(self.telegram_chat_id):
+                    errors.append("TELEGRAM_CHAT_ID must be a non-zero numeric int64 chat ID")
+        elif purpose == "max_public":
+            pass
+        elif purpose == "telegram":
+            if not self.telegram_bot_token:
+                errors.append("TELEGRAM_BOT_TOKEN is required")
+            elif not is_valid_telegram_bot_token(self.telegram_bot_token):
+                errors.append("TELEGRAM_BOT_TOKEN is malformed")
+            if not self.telegram_chat_id:
+                errors.append("TELEGRAM_CHAT_ID is required")
+            elif not is_valid_telegram_chat_id(self.telegram_chat_id):
+                errors.append("TELEGRAM_CHAT_ID must be a non-zero numeric int64 chat ID")
+        elif purpose == "telegram_discovery":
+            if not self.telegram_bot_token:
+                errors.append("TELEGRAM_BOT_TOKEN is required")
+            elif not is_valid_telegram_bot_token(self.telegram_bot_token):
+                errors.append("TELEGRAM_BOT_TOKEN is malformed")
+        elif purpose != "state":
+            errors.append("unknown configuration validation purpose")
+
+        if self.log_level not in _LOG_LEVELS:
+            errors.append(f"LOG_LEVEL must be one of: {', '.join(sorted(_LOG_LEVELS))}")
+
+        if errors:
+            raise ConfigError("invalid configuration:\n- " + "\n- ".join(errors))
+
+    def safe_summary(self) -> dict[str, object]:
+        """Return diagnostics that never include credentials or destination IDs."""
+
+        return {
+            "max_ws_host": urlparse(self.max_ws_url).hostname,
+            "custom_max_ws_url": self.max_allow_custom_ws_url,
+            "max_app_version": self.max_app_version,
+            "max_locale": self.max_locale,
+            "auth_source": "file" if self.max_session_file else "environment",
+            "device_id_configured": bool(self.max_device_id),
+            "selected_chat_count": len(self.max_chat_ids),
+            "discovery_mode": self.discovery_mode,
+            "telegram_configured": bool(self.telegram_bot_token and self.telegram_chat_id),
+            "queue_size": self.queue_size,
+            "reconnect_max_seconds": self.reconnect_max_seconds,
+            "telegram_max_retries": self.telegram_max_retries,
+            "log_level": self.log_level,
+        }
+
+
+def _load_protected_dotenv() -> None:
+    path = Path.cwd() / ".env"
+    try:
+        path.lstat()
+    except FileNotFoundError:
+        return
+    except OSError as exc:
+        raise ConfigError("cannot inspect .env file in the current directory") from exc
+    try:
+        raw = read_private_text(path, maximum_bytes=_MAX_DOTENV_BYTES, label=".env file")
+    except PrivateFileError as exc:
+        raise ConfigError(str(exc)) from exc
+    load_dotenv(stream=StringIO(raw), override=False)

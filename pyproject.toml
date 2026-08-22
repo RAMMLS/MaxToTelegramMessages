@@ -1,0 +1,82 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "max-to-telegram"
+version = "0.1.0"
+description = "Personal bridge that forwards selected MAX web messages to Telegram"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+authors = [{ name = "RAMMLS" }]
+keywords = ["max", "telegram", "bridge", "notifications"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: End Users/Desktop",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Topic :: Communications :: Chat",
+]
+dependencies = [
+  "aiohttp>=3.9,<4",
+  "lz4>=4.3,<5",
+  "msgpack>=1.0,<2",
+  "python-dotenv>=1.0,<2",
+  "tzdata>=2024.1,<2027; platform_system == 'Windows'",
+  "websockets>=13,<16",
+]
+
+[project.optional-dependencies]
+dev = [
+  "build>=1,<2",
+  "mypy>=1.14,<2",
+  "pip-audit>=2.9,<3",
+  "pytest>=8,<9",
+  "pytest-asyncio>=0.24,<1",
+  "pytest-cov>=5,<7",
+  "ruff>=0.9,<1",
+]
+
+[project.urls]
+Homepage = "https://github.com/RAMMLS/MaxToTelegramMessages"
+Issues = "https://github.com/RAMMLS/MaxToTelegramMessages/issues"
+Repository = "https://github.com/RAMMLS/MaxToTelegramMessages.git"
+
+[project.scripts]
+max-to-telegram = "max_to_telegram.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+max_to_telegram = ["py.typed"]
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-config --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = ["live: opt-in tests that contact public MAX infrastructure"]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = ["S101", "S105", "S106"]
+"tests/test_fuzz_properties.py" = ["S311"]
+
+[tool.mypy]
+python_version = "3.10"
+strict = true
+files = ["src/max_to_telegram"]
+ignore_missing_imports = true

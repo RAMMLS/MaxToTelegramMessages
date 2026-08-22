@@ -1,0 +1,434 @@
+from __future__ import annotations
+
+import sqlite3
+from collections.abc import AsyncIterator
+from contextlib import closing
+from datetime import datetime, timezone
+
+import pytest
+
+from max_to_telegram.bridge import Bridge, DiscoveredChat
+from max_to_telegram.dedupe import DedupeError, DedupeStore
+from max_to_telegram.max_client import OPCODE_NEW_MESSAGE
+from max_to_telegram.parser import ChatPolicy, MessageParser, ParsedMessage
+from max_to_telegram.protocol import Frame
+from max_to_telegram.telegram import TelegramPermanentError, TelegramRetryExhausted
+
+
+class FakeSource:
+    def __init__(self, frames: list[Frame]) -> None:
+        self.frames = frames
+        self.stopped = False
+
+    async def events(self) -> AsyncIterator[Frame]:
+        for frame in self.frames:
+            yield frame
+
+    def stop(self) -> None:
+        self.stopped = True
+
+
+class FakeSender:
+    def __init__(self, error: Exception | None = None) -> None:
+        self.messages: list[ParsedMessage] = []
+        self.error = error
+        self.closed = False
+
+    async def send(self, message: ParsedMessage) -> tuple[int, ...]:
+        self.messages.append(message)
+        if self.error is not None:
+            raise self.error
+        return (1000 + len(self.messages),)
+
+    async def close(self) -> None:
+        self.closed = True
+
+
+def frame(
+    *,
+    chat_id: int = 42,
+    message_id: int = 1,
+    sender_id: int = 456,
+    text: str = "hello",
+) -> Frame:
+    return Frame(
+        cmd=0,
+        seq=message_id,
+        opcode=OPCODE_NEW_MESSAGE,
+        payload={
+            "chatId": chat_id,
+            "chat": {"title": f"Chat {chat_id}"},
+            "sender": {"displayName": f"User {sender_id}"},
+            "message": {
+                "id": message_id,
+                "sender": sender_id,
+                "text": text,
+                "time": 1_777_000_000_000 + message_id,
+            },
+        },
+    )
+
+
+def parsed_message(*, chat_id: int = 42, message_id: str = "1") -> ParsedMessage:
+    return ParsedMessage(
+        chat_id=chat_id,
+        message_id=message_id,
+        sender_id=456,
+        sender_name="User",
+        chat_title="Chat",
+        text="pending",
+        timestamp=datetime(2026, 8, 22, tzinfo=timezone.utc),
+        timestamp_raw=1_777_000_000_000,
+        update_time=None,
+        status=None,
+        message_type="USER",
+        attachments=(),
+        is_outgoing=False,
+        is_service=False,
+    )
+
+
+def bridge(
+    tmp_path,
+    frames: list[Frame],
+    *,
+    allowed: frozenset[int] = frozenset({42}),
+    sender: FakeSender | None = None,
+    store: DedupeStore | None = None,
+) -> tuple[Bridge, FakeSender, DedupeStore]:
+    actual_sender = sender or FakeSender()
+    actual_store = store or DedupeStore(tmp_path / "state.db").open()
+    return (
+        Bridge(
+            source=FakeSource(frames),
+            parser=MessageParser(viewer_id=123),
+            policy=ChatPolicy(allowed),
+            discovery_mode=False,
+            queue_size=2,
+            store=actual_store,
+            sender=actual_sender,
+        ),
+        actual_sender,
+        actual_store,
+    )
+
+
+@pytest.mark.asyncio
+async def test_forwards_only_selected_incoming_chat(tmp_path) -> None:
+    runtime, sender, store = bridge(
+        tmp_path,
+        [
+            frame(chat_id=42, message_id=1),
+            frame(chat_id=99, message_id=2),
+            frame(chat_id=42, message_id=3, sender_id=123),
+        ],
+    )
+    try:
+        await runtime.run()
+    finally:
+        store.close()
+
+    assert [message.message_id for message in sender.messages] == ["1"]
+    assert runtime.stats.delivered_messages == 1
+    assert runtime.stats.rejected_messages == 2
+
+
+@pytest.mark.asyncio
+async def test_delivery_logs_do_not_include_max_identifiers_or_names(tmp_path, caplog) -> None:
+    selected_id = 8_765_432_101
+    rejected_id = 8_765_432_102
+    runtime, _, store = bridge(
+        tmp_path,
+        [
+            frame(chat_id=selected_id, message_id=2_345_678_901),
+            frame(chat_id=rejected_id, message_id=2_345_678_902),
+        ],
+        allowed=frozenset({selected_id}),
+    )
+    try:
+        with caplog.at_level("DEBUG", logger="max_to_telegram.bridge"):
+            await runtime.run()
+    finally:
+        store.close()
+
+    rendered = caplog.text
+    for private_value in (
+        str(selected_id),
+        str(rejected_id),
+        "2345678901",
+        "2345678902",
+        f"Chat {selected_id}",
+        f"Chat {rejected_id}",
+        "User 456",
+    ):
+        assert private_value not in rendered
+    assert "Forwarded one selected MAX message: chunks=1" in rendered
+    assert "chat_not_allowed" in rendered
+
+
+@pytest.mark.asyncio
+async def test_duplicate_push_is_sent_once(tmp_path) -> None:
+    same = frame(message_id=1)
+    runtime, sender, store = bridge(tmp_path, [same, same])
+    try:
+        await runtime.run()
+    finally:
+        store.close()
+
+    assert len(sender.messages) == 1
+    assert runtime.stats.duplicate_messages == 1
+
+
+@pytest.mark.asyncio
+async def test_pre_ack_hook_persists_only_selected_incoming_messages(tmp_path) -> None:
+    runtime, _, store = bridge(tmp_path, [])
+    try:
+        await runtime.persist_before_ack(frame(chat_id=42, message_id=1))
+        await runtime.persist_before_ack(frame(chat_id=99, message_id=2))
+        await runtime.persist_before_ack(frame(chat_id=42, message_id=3, sender_id=123))
+
+        assert [message.message_id for message in store.pending_messages()] == ["1"]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_pre_ack_hook_fails_closed_for_malformed_selected_message(tmp_path) -> None:
+    runtime, _, store = bridge(tmp_path, [])
+    try:
+        malformed = Frame(
+            cmd=0,
+            seq=1,
+            opcode=OPCODE_NEW_MESSAGE,
+            payload={"chatId": 42},
+        )
+        with pytest.raises(DedupeError, match="before protocol ACK"):
+            await runtime.persist_before_ack(malformed)
+
+        await runtime.persist_before_ack(
+            Frame(cmd=0, seq=2, opcode=OPCODE_NEW_MESSAGE, payload={"chatId": 99})
+        )
+        await runtime.persist_before_ack(Frame(cmd=0, seq=2, opcode=777))
+
+        assert store.pending_messages() == ()
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_recovers_pending_outbox_before_live_events(tmp_path) -> None:
+    store = DedupeStore(tmp_path / "state.db").open()
+    pending = parsed_message()
+    store.enqueue(pending)
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        await runtime.run()
+    finally:
+        store.close()
+
+    assert sender.messages == [pending]
+    with DedupeStore(tmp_path / "state.db") as reopened:
+        assert reopened.pending_messages() == ()
+
+
+@pytest.mark.asyncio
+async def test_unrecoverable_legacy_pending_item_fails_startup(tmp_path) -> None:
+    store = DedupeStore(tmp_path / "state.db").open()
+    store.claim("legacy-without-message-body")
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        with pytest.raises(DedupeError, match="without recoverable message data"):
+            await runtime.run()
+        assert sender.messages == []
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_invalid_chunk_progress_fails_before_delivery(tmp_path) -> None:
+    path = tmp_path / "state.db"
+    pending = parsed_message()
+    with DedupeStore(path) as prepared:
+        prepared.enqueue(pending)
+        prepared.record_delivery_progress(pending.dedupe_key, [100])
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            "UPDATE deliveries SET telegram_message_ids = 'broken' WHERE dedupe_key = ?",
+            (pending.dedupe_key,),
+        )
+        connection.commit()
+
+    store = DedupeStore(path).open()
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        with pytest.raises(DedupeError, match="invalid Telegram chunk progress"):
+            await runtime.run()
+        assert sender.messages == []
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_streams_large_pending_outbox_through_small_queue(tmp_path) -> None:
+    store = DedupeStore(tmp_path / "state.db").open()
+    for index in range(250):
+        store.enqueue(
+            parsed_message(
+                message_id=str(index),
+            )
+        )
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        await runtime.run()
+
+        assert len(sender.messages) == 250
+        assert runtime.stats.delivered_messages == 250
+        assert store.stats().pending == 0
+        assert store.stats().delivered == 250
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_removed_allowlist_chat_discards_pending_item(tmp_path) -> None:
+    store = DedupeStore(tmp_path / "state.db").open()
+    pending = parsed_message(chat_id=77)
+    store.enqueue(pending)
+    runtime, sender, _ = bridge(tmp_path, [], store=store, allowed=frozenset({42}))
+    try:
+        await runtime.run()
+        assert sender.messages == []
+        assert store.pending_messages() == ()
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_telegram_failure_stays_pending_and_propagates(tmp_path) -> None:
+    sender = FakeSender(TelegramRetryExhausted("offline"))
+    runtime, _, store = bridge(tmp_path, [frame()], sender=sender)
+    try:
+        with pytest.raises(TelegramRetryExhausted, match="offline"):
+            await runtime.run()
+        assert len(store.pending_messages()) == 1
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_destination_preflight_runs_before_reading_max_events(tmp_path) -> None:
+    sender = FakeSender()
+    store = DedupeStore(tmp_path / "state.db").open()
+
+    async def rejected_destination() -> object:
+        raise TelegramPermanentError("wrong destination")
+
+    runtime = Bridge(
+        source=FakeSource([frame()]),
+        parser=MessageParser(viewer_id=123),
+        policy=ChatPolicy(frozenset({42})),
+        discovery_mode=False,
+        queue_size=1,
+        store=store,
+        sender=sender,
+        delivery_preflight=rejected_destination,
+    )
+    try:
+        with pytest.raises(TelegramPermanentError, match="wrong destination"):
+            await runtime.run()
+        assert runtime.stats.frames_seen == 0
+        assert sender.messages == []
+        assert store.stats().total == 0
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_malformed_message_is_ignored(tmp_path) -> None:
+    bad = Frame(cmd=0, seq=1, opcode=OPCODE_NEW_MESSAGE, payload={"chatId": 42})
+    runtime, sender, store = bridge(tmp_path, [bad])
+    try:
+        await runtime.run()
+    finally:
+        store.close()
+
+    assert sender.messages == []
+    assert runtime.stats.parse_errors == 1
+
+
+@pytest.mark.asyncio
+async def test_ignores_non_message_frame(tmp_path) -> None:
+    runtime, sender, store = bridge(tmp_path, [Frame(cmd=0, seq=1, opcode=777)])
+    try:
+        await runtime.run()
+    finally:
+        store.close()
+
+    assert sender.messages == []
+    assert runtime.stats.frames_seen == 1
+
+
+@pytest.mark.asyncio
+async def test_discovery_reports_each_chat_once_without_sender_or_store(caplog) -> None:
+    discovered: list[DiscoveredChat] = []
+    runtime = Bridge(
+        source=FakeSource([frame(chat_id=42), frame(chat_id=42, message_id=2), frame(chat_id=99)]),
+        parser=MessageParser(viewer_id=123),
+        policy=ChatPolicy(frozenset()),
+        discovery_mode=True,
+        queue_size=1,
+        discovery_sink=discovered.append,
+    )
+
+    with caplog.at_level("INFO"):
+        await runtime.run()
+
+    assert [item.chat_id for item in discovered] == [42, 99]
+    assert runtime.stats.parsed_messages == 3
+    assert "User 456" not in caplog.text
+    assert "last_sender" not in caplog.text
+
+
+@pytest.mark.asyncio
+async def test_close_and_stop_are_forwarded(tmp_path) -> None:
+    source = FakeSource([])
+    sender = FakeSender()
+    store = DedupeStore(tmp_path / "state.db").open()
+    runtime = Bridge(
+        source=source,
+        parser=MessageParser(viewer_id=123),
+        policy=ChatPolicy(frozenset({42})),
+        discovery_mode=False,
+        queue_size=1,
+        store=store,
+        sender=sender,
+    )
+
+    runtime.stop()
+    await runtime.close()
+    store.close()
+
+    assert source.stopped is True
+    assert sender.closed is True
+
+
+def test_rejects_invalid_runtime_configuration(tmp_path) -> None:
+    source = FakeSource([])
+    parser = MessageParser(viewer_id=1)
+    policy = ChatPolicy(frozenset())
+    with pytest.raises(ValueError, match="queue"):
+        Bridge(
+            source=source,
+            parser=parser,
+            policy=policy,
+            discovery_mode=True,
+            queue_size=0,
+        )
+    with pytest.raises(ValueError, match="requires"):
+        Bridge(
+            source=source,
+            parser=parser,
+            policy=policy,
+            discovery_mode=False,
+            queue_size=1,
+        )
