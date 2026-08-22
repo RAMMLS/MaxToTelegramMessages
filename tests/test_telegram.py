@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+import traceback
 from collections import deque
 from datetime import datetime, timezone
 from typing import Any
@@ -168,14 +169,20 @@ async def test_retries_server_error_with_exponential_delay() -> None:
 
 @pytest.mark.asyncio
 async def test_retries_network_error_without_leaking_url() -> None:
-    session = FakeSession(aiohttp.ClientConnectionError("offline"))
     token = "token-super-secret-1234567890"
+    session = FakeSession(
+        aiohttp.ClientConnectionError(f"request failed for https://api.telegram.org/bot{token}")
+    )
     sender = TelegramSender(token, "42", max_retries=0, session=session)
 
     with pytest.raises(TelegramRetryExhausted) as raised:
         await sender.send(parsed_message())
 
     assert token not in str(raised.value)
+    rendered_traceback = "".join(
+        traceback.format_exception(type(raised.value), raised.value, raised.value.__traceback__)
+    )
+    assert token not in rendered_traceback
 
 
 @pytest.mark.asyncio

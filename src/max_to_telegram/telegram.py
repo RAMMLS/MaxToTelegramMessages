@@ -121,11 +121,11 @@ class TelegramSender:
         for attempt in range(self.max_retries + 1):
             try:
                 response_status, document = await self._post_json(url, payload)
-            except (aiohttp.ClientError, asyncio.TimeoutError, TimeoutError) as exc:
+            except (aiohttp.ClientError, asyncio.TimeoutError, TimeoutError):
                 if attempt >= self.max_retries:
                     raise TelegramRetryExhausted(
                         f"Telegram network request failed after {attempt + 1} attempts"
-                    ) from exc
+                    ) from None
                 await self.sleep(_retry_delay(attempt))
                 continue
 
