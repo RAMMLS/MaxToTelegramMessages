@@ -94,9 +94,11 @@ class ChatPolicy:
             return PolicyDecision.CHAT_NOT_ALLOWED
         if message.is_outgoing:
             return PolicyDecision.OUTGOING
-        if message.status in _REMOVED_STATUSES:
+        status = (message.status or "")[:64].strip().upper()
+        if status in _REMOVED_STATUSES:
             return PolicyDecision.REMOVED
-        if message.is_service:
+        message_type = message.message_type[:64].strip().upper()
+        if message.is_service or message_type != "USER":
             return PolicyDecision.SERVICE
         if not message.content:
             return PolicyDecision.EMPTY
@@ -127,8 +129,10 @@ class MessageParser:
             allow_negative=False,
         )
         update_time = _optional_int(message.get("updateTime"), "message.updateTime")
-        status = _optional_text(message.get("status"), "message.status", maximum=64)
-        message_type = _optional_text(message.get("type"), "message.type", maximum=64) or "USER"
+        raw_status = _optional_text(message.get("status"), "message.status", maximum=64)
+        status = raw_status.strip().upper() if raw_status and raw_status.strip() else None
+        raw_message_type = _optional_text(message.get("type"), "message.type", maximum=64)
+        message_type = raw_message_type.strip().upper() if raw_message_type is not None else "USER"
         text = _optional_text(message.get("text"), "message.text", maximum=1_000_000) or ""
         attachments, is_service = _parse_attachments(message.get("attaches"))
 
