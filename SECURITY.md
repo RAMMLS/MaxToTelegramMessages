@@ -40,3 +40,5 @@
 - ошибки конфигурации/outbox не повторяют supplied chat values и record keys.
 - credential-free `--check-max-public` не открывает `.env`.
 - dotenv-loader не ищет `.env` выше текущего рабочего каталога.
+- `MAX_WS_URL` закреплён на исследованном endpoint; нестандартный host требует
+  явного opt-in, потому что login-команда содержит MAX session token.

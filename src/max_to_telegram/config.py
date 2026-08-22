@@ -104,6 +104,7 @@ class Settings:
     """
 
     max_ws_url: str = _DEFAULT_MAX_WS_URL
+    max_allow_custom_ws_url: bool = False
     max_app_version: str = _DEFAULT_MAX_APP_VERSION
     max_locale: str = _DEFAULT_MAX_LOCALE
     max_viewer_id: int | None = None
@@ -163,6 +164,11 @@ class Settings:
 
         settings = cls(
             max_ws_url=source.get("MAX_WS_URL", _DEFAULT_MAX_WS_URL).strip(),
+            max_allow_custom_ws_url=_parse_bool(
+                "MAX_ALLOW_CUSTOM_WS_URL",
+                source.get("MAX_ALLOW_CUSTOM_WS_URL"),
+                default=False,
+            ),
             max_app_version=source.get("MAX_APP_VERSION", _DEFAULT_MAX_APP_VERSION).strip(),
             max_locale=source.get("MAX_LOCALE", _DEFAULT_MAX_LOCALE).strip(),
             max_viewer_id=viewer_id,
@@ -194,6 +200,13 @@ class Settings:
             parsed_ws_url = urlparse(self.max_ws_url)
             if parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
                 errors.append("MAX_WS_URL must be an absolute wss:// URL")
+            elif parsed_ws_url.username is not None or parsed_ws_url.password is not None:
+                errors.append("MAX_WS_URL must not contain user information")
+            elif not self.max_allow_custom_ws_url and self.max_ws_url != _DEFAULT_MAX_WS_URL:
+                errors.append(
+                    "MAX_WS_URL must use the pinned api.oneme.ru endpoint; "
+                    "set MAX_ALLOW_CUSTOM_WS_URL=true only for reviewed protocol research"
+                )
             if not self.max_app_version:
                 errors.append("MAX_APP_VERSION must not be empty")
             if not self.max_locale:
@@ -259,6 +272,7 @@ class Settings:
 
         return {
             "max_ws_host": urlparse(self.max_ws_url).hostname,
+            "custom_max_ws_url": self.max_allow_custom_ws_url,
             "max_app_version": self.max_app_version,
             "max_locale": self.max_locale,
             "auth_source": "file" if self.max_session_file else "environment",

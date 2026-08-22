@@ -154,6 +154,33 @@ def test_rejects_non_tls_websocket_url() -> None:
         Settings.from_env(complete_env(MAX_WS_URL="ws://api.oneme.ru/websocket"))
 
 
+def test_rejects_unapproved_custom_max_endpoint() -> None:
+    with pytest.raises(ConfigError, match=r"pinned api\.oneme\.ru"):
+        Settings.from_env(complete_env(MAX_WS_URL="wss://example.test/websocket"))
+
+
+def test_allows_explicitly_approved_custom_max_endpoint() -> None:
+    settings = Settings.from_env(
+        complete_env(
+            MAX_WS_URL="wss://research.example.test/websocket",
+            MAX_ALLOW_CUSTOM_WS_URL="true",
+        )
+    )
+
+    assert settings.max_ws_url == "wss://research.example.test/websocket"
+    assert settings.max_allow_custom_ws_url is True
+
+
+def test_rejects_max_endpoint_userinfo_even_with_custom_opt_in() -> None:
+    with pytest.raises(ConfigError, match="user information"):
+        Settings.from_env(
+            complete_env(
+                MAX_WS_URL="wss://user:password@example.test/websocket",
+                MAX_ALLOW_CUSTOM_WS_URL="true",
+            )
+        )
+
+
 def test_accepts_valid_device_id() -> None:
     settings = Settings.from_env(complete_env(MAX_DEVICE_ID="123e4567-e89b-12d3-a456-426614174000"))
 
