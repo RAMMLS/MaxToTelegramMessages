@@ -177,9 +177,7 @@ class TelegramSender:
             if response_status == 200 and ok:
                 return cast(dict[str, Any], document)
 
-            error_code = (
-                document.get("error_code") if isinstance(document, dict) else response_status
-            )
+            error_code = _safe_error_code(document, response_status)
             description = _safe_description(document, self.bot_token)
             retry_after = _retry_after(document)
             is_rate_limited = response_status == 429 or error_code == 429
@@ -294,7 +292,19 @@ def _safe_description(document: Any, token: str) -> str:
     description = document.get("description")
     if not isinstance(description, str):
         return "unknown Telegram error"
-    return description.replace(token, "<redacted>")[:500]
+    rendered = " ".join(description.replace(token, "<redacted>").split())
+    return rendered[:500] or "unknown Telegram error"
+
+
+def _safe_error_code(document: Any, response_status: int) -> int:
+    if not isinstance(document, dict):
+        return response_status
+    error_code = document.get("error_code")
+    if isinstance(error_code, bool) or not isinstance(error_code, int):
+        return response_status
+    if not 100 <= error_code <= 599:
+        return response_status
+    return error_code
 
 
 def _chat_title(chat: dict[str, Any]) -> str:
