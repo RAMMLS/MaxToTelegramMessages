@@ -112,6 +112,24 @@ class Bridge:
         if self.sender is not None:
             await self.sender.close()
 
+    async def persist_before_ack(self, frame: Frame) -> None:
+        """Persist selected messages before MAX receives its protocol ACK.
+
+        Parsing problems are left for the normal consumer to report and skip.
+        Storage failures deliberately propagate so the client does not ACK a
+        selected message that was not made durable.
+        """
+
+        if self.discovery_mode or frame.opcode != OPCODE_NEW_MESSAGE:
+            return
+        assert self.store is not None
+        try:
+            message = self.parser.parse(frame)
+        except MessageParseError:
+            return
+        if self.policy.decide(message) is PolicyDecision.FORWARD:
+            self.store.enqueue(message)
+
     async def _produce(self) -> None:
         try:
             if not self.discovery_mode:
