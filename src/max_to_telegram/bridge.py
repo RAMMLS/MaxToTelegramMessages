@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncIterator, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
@@ -69,6 +69,7 @@ class Bridge:
         store: DedupeStore | None = None,
         sender: MessageSender | TelegramSender | None = None,
         discovery_sink: Callable[[DiscoveredChat], None] | None = None,
+        delivery_preflight: Callable[[], Awaitable[object]] | None = None,
     ) -> None:
         if queue_size < 1:
             raise ValueError("queue size must be positive")
@@ -81,6 +82,7 @@ class Bridge:
         self.store = store
         self.sender = sender
         self.discovery_sink = discovery_sink
+        self.delivery_preflight = delivery_preflight
         self.stats = BridgeStats()
         self._queue: asyncio.Queue[ParsedMessage | object] = asyncio.Queue(maxsize=queue_size)
         self._queued_keys: set[str] = set()
@@ -92,6 +94,10 @@ class Bridge:
         if self.discovery_mode:
             await self._produce()
             return
+
+        if self.delivery_preflight is not None:
+            await self.delivery_preflight()
+            logger.info("Telegram bot and destination preflight passed")
 
         producer = asyncio.create_task(self._produce(), name="max-event-producer")
         worker = asyncio.create_task(self._deliver(), name="telegram-delivery-worker")
