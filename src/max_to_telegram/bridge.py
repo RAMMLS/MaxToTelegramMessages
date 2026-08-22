@@ -196,10 +196,7 @@ class Bridge:
                 store.discard_pending(message.dedupe_key)
                 self.stats.rejected_messages += 1
                 logger.info(
-                    "Discarded pending message because current policy rejects it: "
-                    "chat_id=%s message_id=%s reason=%s",
-                    message.chat_id,
-                    message.message_id,
+                    "Discarded pending message because current policy rejects it: reason=%s",
                     decision.value,
                 )
                 continue
@@ -211,9 +208,7 @@ class Bridge:
         if decision is not PolicyDecision.FORWARD:
             self.stats.rejected_messages += 1
             logger.debug(
-                "MAX message rejected: chat_id=%s message_id=%s reason=%s",
-                message.chat_id,
-                message.message_id,
+                "MAX message rejected by policy: reason=%s",
                 decision.value,
             )
             return
@@ -251,9 +246,7 @@ class Bridge:
                     raise
                 self.stats.delivered_messages += 1
                 logger.info(
-                    "Forwarded selected MAX message: chat_id=%s message_id=%s chunks=%s",
-                    item.chat_id,
-                    item.message_id,
+                    "Forwarded one selected MAX message: chunks=%s",
                     len(telegram_ids),
                 )
             finally:

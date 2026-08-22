@@ -132,6 +132,39 @@ async def test_forwards_only_selected_incoming_chat(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_delivery_logs_do_not_include_max_identifiers_or_names(tmp_path, caplog) -> None:
+    selected_id = 8_765_432_101
+    rejected_id = 8_765_432_102
+    runtime, _, store = bridge(
+        tmp_path,
+        [
+            frame(chat_id=selected_id, message_id=2_345_678_901),
+            frame(chat_id=rejected_id, message_id=2_345_678_902),
+        ],
+        allowed=frozenset({selected_id}),
+    )
+    try:
+        with caplog.at_level("DEBUG", logger="max_to_telegram.bridge"):
+            await runtime.run()
+    finally:
+        store.close()
+
+    rendered = caplog.text
+    for private_value in (
+        str(selected_id),
+        str(rejected_id),
+        "2345678901",
+        "2345678902",
+        f"Chat {selected_id}",
+        f"Chat {rejected_id}",
+        "User 456",
+    ):
+        assert private_value not in rendered
+    assert "Forwarded one selected MAX message: chunks=1" in rendered
+    assert "chat_not_allowed" in rendered
+
+
+@pytest.mark.asyncio
 async def test_duplicate_push_is_sent_once(tmp_path) -> None:
     same = frame(message_id=1)
     runtime, sender, store = bridge(tmp_path, [same, same])
