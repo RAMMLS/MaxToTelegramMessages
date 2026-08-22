@@ -109,6 +109,11 @@ def test_session_file_can_replace_direct_credentials() -> None:
     assert settings.max_viewer_id is None
 
 
+def test_rejects_ambiguous_direct_and_file_auth_sources() -> None:
+    with pytest.raises(ConfigError, match="not both"):
+        Settings.from_env(complete_env(MAX_SESSION_FILE=".max-session.json"))
+
+
 def test_repr_and_safe_summary_do_not_leak_secrets() -> None:
     settings = Settings.from_env(complete_env())
 
@@ -205,3 +210,9 @@ def test_rejects_oversized_dotenv(tmp_path, monkeypatch) -> None:
 def test_rejects_resource_settings_above_safe_bounds(name: str, value: str, maximum: str) -> None:
     with pytest.raises(ConfigError, match=rf"{name} must be at most {maximum}"):
         Settings.from_env(complete_env(**{name: value}))
+
+
+@pytest.mark.parametrize("chat_id", ["0", "@channel", "+123", "01", str(2**63)])
+def test_rejects_non_numeric_or_out_of_range_telegram_destination(chat_id: str) -> None:
+    with pytest.raises(ConfigError, match="numeric int64"):
+        Settings.from_env(complete_env(TELEGRAM_CHAT_ID=chat_id))

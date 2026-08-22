@@ -21,6 +21,7 @@
 - parser bounds для числовых полей и массива/типов вложений;
 - верхние границы resource settings и overflow-safe reconnect backoff;
 - data-minimized MAX discovery без имени последнего отправителя;
+- однозначный MAX auth source и строгий числовой Telegram destination ID;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 

@@ -12,7 +12,7 @@ from zoneinfo import ZoneInfo
 
 import aiohttp
 
-from max_to_telegram.config import is_valid_telegram_bot_token
+from max_to_telegram.config import is_valid_telegram_bot_token, is_valid_telegram_chat_id
 from max_to_telegram.parser import ParsedMessage
 
 TELEGRAM_TEXT_LIMIT = 4096
@@ -81,6 +81,8 @@ class TelegramSender:
             raise TelegramPermanentError("Telegram bot token is empty or malformed")
         if not self.chat_id and not self.allow_missing_chat_id:
             raise TelegramPermanentError("Telegram chat ID is empty")
+        if self.chat_id and not is_valid_telegram_chat_id(self.chat_id):
+            raise TelegramPermanentError("Telegram chat ID must be a non-zero numeric int64 value")
         if self.max_retries < 0:
             raise TelegramPermanentError("Telegram retry count must not be negative")
 
