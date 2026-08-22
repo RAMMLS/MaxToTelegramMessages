@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import errno
 import json
 import os
 import sqlite3
@@ -18,6 +19,13 @@ try:
     import fcntl
 except ImportError:  # pragma: no cover - Windows has no fcntl
     fcntl = None  # type: ignore[assignment]
+
+try:
+    import msvcrt as windows_lock
+except ImportError:  # pragma: no cover - POSIX has no msvcrt
+    windows_lock = None  # type: ignore[assignment]
+
+PROCESS_LOCK_SUPPORTED = fcntl is not None or windows_lock is not None
 
 
 class DedupeError(RuntimeError):
@@ -530,8 +538,10 @@ class DedupeStore:
             raise DedupeError("could not prepare the delivery state database") from exc
 
     def _acquire_process_lock(self) -> None:
-        if fcntl is None or self._lock_descriptor is not None:
+        if self._lock_descriptor is not None:
             return
+        if not PROCESS_LOCK_SUPPORTED:
+            raise DedupeError("this platform has no supported state database process lock")
         lock_path = Path(f"{self.path}.lock")
         flags = os.O_CREAT | os.O_RDWR
         if hasattr(os, "O_CLOEXEC"):
@@ -544,18 +554,29 @@ class DedupeStore:
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 raise DedupeError("state lock path must be a regular file")
             os.fchmod(descriptor, 0o600)
-            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except BlockingIOError as exc:
+            if fcntl is not None:
+                fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            elif windows_lock is not None:
+                if os.fstat(descriptor).st_size < 1:
+                    os.write(descriptor, b"\0")
+                    os.fsync(descriptor)
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                windows_lock.locking(descriptor, windows_lock.LK_NBLCK, 1)
+        except DedupeError:
             if descriptor >= 0:
                 with suppress(OSError):
                     os.close(descriptor)
-            raise DedupeError("state database is already used by another bridge process") from exc
-        except (OSError, DedupeError) as exc:
+            raise
+        except OSError as exc:
             if descriptor >= 0:
                 with suppress(OSError):
                     os.close(descriptor)
-            if isinstance(exc, DedupeError):
-                raise
+            if exc.errno in {errno.EACCES, errno.EAGAIN, errno.EDEADLK} or getattr(
+                exc, "winerror", None
+            ) in {33, 36}:
+                raise DedupeError(
+                    "state database is already used by another bridge process"
+                ) from exc
             raise DedupeError("could not acquire the state database process lock") from exc
         self._lock_descriptor = descriptor
 
@@ -567,6 +588,10 @@ class DedupeStore:
         if fcntl is not None:
             with suppress(OSError):
                 fcntl.flock(descriptor, fcntl.LOCK_UN)
+        elif windows_lock is not None:
+            with suppress(OSError):
+                os.lseek(descriptor, 0, os.SEEK_SET)
+                windows_lock.locking(descriptor, windows_lock.LK_UNLCK, 1)
         with suppress(OSError):
             os.close(descriptor)
 

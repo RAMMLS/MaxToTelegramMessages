@@ -391,7 +391,10 @@ def test_state_database_parent_creation_error_is_sanitized(tmp_path):
         DedupeStore(parent_file / "state.db").open()
 
 
-@pytest.mark.skipif(dedupe_module.fcntl is None, reason="requires POSIX flock")
+@pytest.mark.skipif(
+    not dedupe_module.PROCESS_LOCK_SUPPORTED,
+    reason="requires a supported OS process-lock backend",
+)
 def test_second_process_store_is_rejected_until_first_closes(tmp_path):
     path = tmp_path / "state.sqlite3"
     first = DedupeStore(path).open()

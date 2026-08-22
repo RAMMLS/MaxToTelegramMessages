@@ -47,6 +47,7 @@
 - границы количества selected chats и MAX configuration metadata;
 - управляемые ConfigError для malformed MAX WebSocket URL/port/fragment;
 - безопасный parser путей и запрет общего файла для session JSON/SQLite;
+- Windows `msvcrt` process lock и отдельный Windows/Python 3.12 CI job;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
