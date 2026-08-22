@@ -173,10 +173,11 @@ TELEGRAM_CHAT_ID=
 чата один раз появится строка без текста сообщения:
 
 ```text
-Discovered MAX chat: chat_id=123456789 title='Семья' last_sender='Имя'
+Discovered MAX chat: chat_id=123456789 title='Семья'
 ```
 
-Discovery не вызывает Telegram API и не пересылает сообщения.
+Discovery не вызывает Telegram API, не пересылает сообщения и не пишет в лог
+имя последнего отправителя.
 
 ### 2. Точный allowlist
 

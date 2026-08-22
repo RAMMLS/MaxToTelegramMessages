@@ -39,7 +39,6 @@ class MessageSender(Protocol):
 class DiscoveredChat:
     chat_id: int
     title: str
-    last_sender: str
 
 
 @dataclass(slots=True)
@@ -273,13 +272,11 @@ class Bridge:
         discovered = DiscoveredChat(
             chat_id=message.chat_id,
             title=message.chat_title,
-            last_sender=message.sender_name,
         )
         logger.info(
-            "Discovered MAX chat: chat_id=%s title=%r last_sender=%r",
+            "Discovered MAX chat: chat_id=%s title=%r",
             discovered.chat_id,
             discovered.title,
-            discovered.last_sender,
         )
         if self.discovery_sink is not None:
             self.discovery_sink(discovered)
