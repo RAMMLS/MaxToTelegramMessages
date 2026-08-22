@@ -164,10 +164,10 @@ async def discover_telegram_chats(settings: Settings) -> tuple[dict[str, object]
         await sender.close()
 
 
-def inspect_state(settings: Settings) -> dict[str, int]:
+def inspect_state(settings: Settings) -> dict[str, int | bool]:
     store = DedupeStore(settings.state_db).open()
     try:
-        return asdict(store.stats())
+        return {**asdict(store.stats()), **asdict(store.health())}
     finally:
         store.close()
 

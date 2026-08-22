@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 import pytest
 
 from max_to_telegram.bridge import Bridge, DiscoveredChat
-from max_to_telegram.dedupe import DedupeStore
+from max_to_telegram.dedupe import DedupeError, DedupeStore
 from max_to_telegram.max_client import OPCODE_NEW_MESSAGE
 from max_to_telegram.parser import ChatPolicy, MessageParser, ParsedMessage
 from max_to_telegram.protocol import Frame
@@ -185,6 +185,19 @@ async def test_recovers_pending_outbox_before_live_events(tmp_path) -> None:
     assert sender.messages == [pending]
     with DedupeStore(tmp_path / "state.db") as reopened:
         assert reopened.pending_messages() == ()
+
+
+@pytest.mark.asyncio
+async def test_unrecoverable_legacy_pending_item_fails_startup(tmp_path) -> None:
+    store = DedupeStore(tmp_path / "state.db").open()
+    store.claim("legacy-without-message-body")
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        with pytest.raises(DedupeError, match="without recoverable message data"):
+            await runtime.run()
+        assert sender.messages == []
+    finally:
+        store.close()
 
 
 @pytest.mark.asyncio

@@ -94,6 +94,8 @@ git diff --check
 - [ ] Одновременный второй процесс с тем же state DB получает отказ.
 - [ ] Удаление chat ID из allowlist до рестарта удаляет его pending delivery без
       отправки.
+- [ ] `--check-state` показывает `integrity_ok=true`, а также нулевой
+      `unrecoverable_pending`; legacy pending без тела блокирует startup.
 
 ## 7. Session lifecycle
 

@@ -83,6 +83,23 @@ def test_stats_are_content_free_and_track_failures(tmp_path):
 def test_empty_stats_are_zero(tmp_path):
     with DedupeStore(tmp_path / "state.db") as store:
         assert store.stats().total == 0
+        assert store.health().integrity_ok is True
+        assert store.health().recoverable_pending == 0
+        assert store.health().unrecoverable_pending == 0
+
+
+def test_health_distinguishes_recoverable_and_legacy_pending_rows(tmp_path):
+    path = tmp_path / "state.db"
+    with DedupeStore(path) as store:
+        store.enqueue(parsed_message())
+        store.claim("legacy-without-message")
+
+        health = store.health()
+
+    assert health.integrity_ok is True
+    assert health.recoverable_pending == 1
+    assert health.unrecoverable_pending == 1
+    assert "legacy-without-message" not in repr(health)
 
 
 def test_outbox_message_survives_restart(tmp_path):
