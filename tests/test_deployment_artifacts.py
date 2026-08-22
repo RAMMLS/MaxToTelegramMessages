@@ -13,6 +13,13 @@ def test_systemd_unit_uses_unprivileged_private_writable_state() -> None:
     assert "StateDirectoryMode=0700" in unit
     assert "NoNewPrivileges=true" in unit
     assert "ProtectSystem=strict" in unit
+    assert "ProtectKernelLogs=true" in unit
+    assert "ProtectProc=invisible" in unit
+    assert "ProcSubset=pid" in unit
+    assert "MemoryDenyWriteExecute=true" in unit
+    assert "PrivateMounts=true" in unit
+    assert "RestrictRealtime=true" in unit
+    assert "RestartPreventExitStatus=2" in unit
     assert "CapabilityBoundingSet=" in unit
     assert "RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6" in unit
     assert "ReadWritePaths=/opt/max-to-telegram" not in unit
