@@ -4,11 +4,24 @@ from __future__ import annotations
 
 import os
 import stat
+from collections.abc import Callable
 from pathlib import Path
+from typing import cast
 
 
 class PrivateFileError(RuntimeError):
     """Raised when a credential file cannot be opened under the safety policy."""
+
+
+def enforce_private_fd_permissions(descriptor: int) -> None:
+    """Restrict an open file to its owner on platforms that expose POSIX modes."""
+
+    if os.name != "posix":
+        return
+    fchmod = cast(Callable[[int, int], None] | None, getattr(os, "fchmod", None))
+    if fchmod is None:  # pragma: no cover - defensive guard for unusual POSIX runtimes
+        raise OSError("POSIX runtime does not provide fchmod")
+    fchmod(descriptor, 0o600)
 
 
 def read_private_text(path: Path, *, maximum_bytes: int, label: str) -> str:

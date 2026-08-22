@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import errno
+import importlib
 import json
 import os
 import sqlite3
@@ -12,18 +13,36 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import Protocol, cast
 
 from max_to_telegram.parser import ParsedMessage
+from max_to_telegram.safe_files import enforce_private_fd_permissions
 
-try:
-    import fcntl
-except ImportError:  # pragma: no cover - Windows has no fcntl
-    fcntl = None  # type: ignore[assignment]
 
-try:
-    import msvcrt as windows_lock
-except ImportError:  # pragma: no cover - POSIX has no msvcrt
-    windows_lock = None  # type: ignore[assignment]
+class _PosixLockModule(Protocol):
+    LOCK_EX: int
+    LOCK_NB: int
+    LOCK_UN: int
+
+    def flock(self, descriptor: int, operation: int) -> None: ...
+
+
+class _WindowsLockModule(Protocol):
+    LK_NBLCK: int
+    LK_UNLCK: int
+
+    def locking(self, descriptor: int, mode: int, length: int) -> None: ...
+
+
+def _optional_platform_module(name: str) -> object | None:
+    try:
+        return importlib.import_module(name)
+    except ImportError:
+        return None
+
+
+fcntl = cast(_PosixLockModule | None, _optional_platform_module("fcntl"))
+windows_lock = cast(_WindowsLockModule | None, _optional_platform_module("msvcrt"))
 
 PROCESS_LOCK_SUPPORTED = fcntl is not None or windows_lock is not None
 
@@ -553,7 +572,7 @@ class DedupeStore:
             descriptor = os.open(lock_path, flags, 0o600)
             if not stat.S_ISREG(os.fstat(descriptor).st_mode):
                 raise DedupeError("state lock path must be a regular file")
-            os.fchmod(descriptor, 0o600)
+            enforce_private_fd_permissions(descriptor)
             if fcntl is not None:
                 fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
             elif windows_lock is not None:
