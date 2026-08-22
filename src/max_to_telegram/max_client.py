@@ -379,7 +379,11 @@ class MaxClient:
         return MaxCommandError(opcode=frame.opcode, code=code, message=message)
 
     def _reconnect_delay(self, attempt: int) -> float:
-        ceiling = min(0.5 * (2**attempt), float(self.settings.reconnect_max_seconds))
+        maximum = self.settings.reconnect_max_seconds
+        if attempt >= maximum.bit_length() + 1:
+            ceiling = float(maximum)
+        else:
+            ceiling = min(0.5 * (2**attempt), float(maximum))
         return self.random_uniform(ceiling / 2, ceiling)
 
 

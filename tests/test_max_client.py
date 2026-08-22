@@ -395,6 +395,7 @@ def test_reconnect_delay_is_capped_and_jittered() -> None:
     assert client._reconnect_delay(0) == 0.5
     assert client._reconnect_delay(4) == 8.0
     assert client._reconnect_delay(10) == 10.0
+    assert client._reconnect_delay(10_000) == 10.0
 
 
 @pytest.mark.asyncio

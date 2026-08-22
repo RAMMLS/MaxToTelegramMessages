@@ -52,6 +52,7 @@ def _parse_int(
     *,
     default: int | None = None,
     minimum: int | None = None,
+    maximum: int | None = None,
 ) -> int | None:
     if raw is None or not raw.strip():
         return default
@@ -61,6 +62,8 @@ def _parse_int(
         raise ConfigError(f"{name} must be an integer") from exc
     if minimum is not None and value < minimum:
         raise ConfigError(f"{name} must be at least {minimum}")
+    if maximum is not None and value > maximum:
+        raise ConfigError(f"{name} must be at most {maximum}")
     return value
 
 
@@ -127,19 +130,25 @@ class Settings:
         session_raw = source.get("MAX_SESSION_FILE", "").strip()
         viewer_id = _parse_int("MAX_VIEWER_ID", source.get("MAX_VIEWER_ID"))
         queue_size = _parse_int(
-            "BRIDGE_QUEUE_SIZE", source.get("BRIDGE_QUEUE_SIZE"), default=100, minimum=1
+            "BRIDGE_QUEUE_SIZE",
+            source.get("BRIDGE_QUEUE_SIZE"),
+            default=100,
+            minimum=1,
+            maximum=10_000,
         )
         reconnect_max = _parse_int(
             "MAX_RECONNECT_MAX_SECONDS",
             source.get("MAX_RECONNECT_MAX_SECONDS"),
             default=10,
             minimum=1,
+            maximum=3_600,
         )
         telegram_retries = _parse_int(
             "TELEGRAM_MAX_RETRIES",
             source.get("TELEGRAM_MAX_RETRIES"),
             default=5,
             minimum=0,
+            maximum=20,
         )
 
         settings = cls(
