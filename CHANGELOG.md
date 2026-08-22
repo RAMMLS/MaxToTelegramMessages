@@ -39,6 +39,7 @@
 - нормализация Telegram error code/description против утечек и log injection;
 - signed-int64 границы для MAX viewer/chat/sender/time identifiers;
 - удаление MAX identifiers и имён из обычных delivery/policy логов;
+- ранние лимиты нормализации MAX/Telegram remote metadata;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
