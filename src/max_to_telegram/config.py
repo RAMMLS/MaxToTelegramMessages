@@ -217,13 +217,25 @@ class Settings:
 
         errors: list[str] = []
         if purpose in {"runtime", "max_public"}:
-            parsed_ws_url = urlparse(self.max_ws_url)
+            try:
+                parsed_ws_url = urlparse(self.max_ws_url)
+                _ = parsed_ws_url.port
+            except ValueError:
+                parsed_ws_url = None
             if len(self.max_ws_url) > _MAX_WS_URL_CHARS or _has_control_characters(self.max_ws_url):
                 errors.append("MAX_WS_URL is too long or contains control characters")
+            elif parsed_ws_url is None:
+                errors.append("MAX_WS_URL is malformed")
             elif parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
                 errors.append("MAX_WS_URL must be an absolute wss:// URL")
+            elif not parsed_ws_url.hostname:
+                errors.append("MAX_WS_URL must include a valid hostname")
             elif parsed_ws_url.username is not None or parsed_ws_url.password is not None:
                 errors.append("MAX_WS_URL must not contain user information")
+            elif parsed_ws_url.fragment:
+                errors.append("MAX_WS_URL must not contain a fragment")
+            elif re.search(r"%(?![0-9A-Fa-f]{2})", self.max_ws_url):
+                errors.append("MAX_WS_URL contains invalid percent encoding")
             elif not self.max_allow_custom_ws_url and self.max_ws_url != _DEFAULT_MAX_WS_URL:
                 errors.append(
                     "MAX_WS_URL must use the pinned api.oneme.ru endpoint; "

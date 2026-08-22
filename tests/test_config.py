@@ -201,6 +201,26 @@ def test_rejects_max_endpoint_userinfo_even_with_custom_opt_in() -> None:
 
 
 @pytest.mark.parametrize(
+    "url",
+    [
+        "wss://[bad/websocket",
+        "wss://example.test:invalid/websocket",
+        "wss://example.test:70000/websocket",
+        "wss://example.test/websocket#fragment",
+        "wss://example.test/%zz",
+    ],
+)
+def test_rejects_malformed_custom_max_url_as_config_error(url: str) -> None:
+    with pytest.raises(ConfigError, match="MAX_WS_URL"):
+        Settings.from_env(
+            complete_env(
+                MAX_WS_URL=url,
+                MAX_ALLOW_CUSTOM_WS_URL="true",
+            )
+        )
+
+
+@pytest.mark.parametrize(
     ("overrides", "message"),
     [
         (
