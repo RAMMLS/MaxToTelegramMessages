@@ -16,6 +16,7 @@ from max_to_telegram.cli import (
 )
 from max_to_telegram.config import ConfigError, Settings
 from max_to_telegram.dedupe import OutboxStats
+from max_to_telegram.telegram import TelegramRetryExhausted
 
 BOT_TOKEN = "12345:TEST_ONLY_NOT_A_REAL_BOT_TOKEN_12345"
 
@@ -222,6 +223,36 @@ def test_invalid_config_returns_two_without_traceback(monkeypatch, capsys) -> No
     captured = capsys.readouterr()
     assert "MAX credentials" in captured.err or "MAX_VIEWER_ID" in captured.err
     assert "Traceback" not in captured.err
+
+
+def test_transient_telegram_failure_returns_tempfail_without_secret(
+    monkeypatch, capsys, tmp_path
+) -> None:
+    max_token = "m" * 32
+    telegram_token = BOT_TOKEN
+    env = {
+        "MAX_VIEWER_ID": "123",
+        "MAX_AUTH_TOKEN": max_token,
+        "MAX_CHAT_IDS": "42",
+        "TELEGRAM_BOT_TOKEN": telegram_token,
+        "TELEGRAM_CHAT_ID": "99",
+        "BRIDGE_STATE_DB": str(tmp_path / "state.db"),
+    }
+    for key, value in env.items():
+        monkeypatch.setenv(key, value)
+    monkeypatch.chdir("/")
+    bundle = RuntimeBundle(
+        bridge=FakeBridge(TelegramRetryExhausted("temporary Telegram outage")),
+        store=None,
+    )
+    monkeypatch.setattr("max_to_telegram.cli.build_runtime", lambda *_args: bundle)
+
+    assert main([]) == 75
+    captured = capsys.readouterr()
+    assert "temporary Telegram outage" in captured.err
+    assert "Traceback" not in captured.err
+    assert max_token not in captured.out + captured.err
+    assert telegram_token not in captured.out + captured.err
 
 
 def test_version_does_not_require_configuration(capsys) -> None:
