@@ -181,9 +181,22 @@ MAX_CHAT_IDS=123456789,-987654321
 ## Telegram
 
 1. Создайте бота через BotFather или используйте существующего.
-2. Откройте диалог с ботом и нажмите Start либо добавьте его в целевую группу.
-3. Узнайте числовой `chat_id` через `getUpdates` или другой доверенный инструмент.
-4. Запишите значения только в `.env`:
+2. Запишите новый token в `TELEGRAM_BOT_TOKEN` локального `.env`, временно
+   оставив `TELEGRAM_CHAT_ID` пустым.
+3. Откройте диалог с ботом и нажмите Start либо добавьте его в целевую группу и
+   отправьте туда тестовое сообщение.
+4. Получите только ID/тип/название недавних чатов, без вывода текста сообщений:
+
+   ```bash
+   max-to-telegram --discover-telegram-chats
+   ```
+
+   Эта команда не требует MAX credentials и не подтверждает/удаляет updates
+   с помощью `offset`. Если бот использует webhook, Telegram может запретить
+   одновременный `getUpdates`; тогда временно отключите webhook либо получите ID
+   через уже настроенный обработчик.
+
+5. Выберите нужный числовой `chat_id` и запишите значения только в `.env`:
 
    ```dotenv
    TELEGRAM_BOT_TOKEN=replace-with-bot-token
@@ -192,6 +205,9 @@ MAX_CHAT_IDS=123456789,-987654321
 
 Для группы `chat_id` обычно отрицательный. Telegram API не сможет отправлять
 ботом в чат, где бот отсутствует или не имеет нужных прав.
+
+После выбора выполните `max-to-telegram --check-telegram`: команда вызывает
+только `getMe` и `getChat`, не отправляя тестовое сообщение.
 
 ## Полный пример `.env`
 
@@ -248,6 +264,8 @@ Git.
 ```bash
 ruff format --check .
 ruff check .
+mypy
+pip-audit --strict --progress-spinner=off .
 pytest
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
 git diff --check

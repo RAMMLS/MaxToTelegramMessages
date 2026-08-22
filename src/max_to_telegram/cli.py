@@ -18,7 +18,7 @@ from max_to_telegram.auth import (
     save_session_file,
 )
 from max_to_telegram.bridge import Bridge
-from max_to_telegram.config import ConfigError, Settings
+from max_to_telegram.config import ConfigError, Settings, ValidationPurpose
 from max_to_telegram.dedupe import DedupeError, DedupeStore
 from max_to_telegram.logging_utils import configure_logging
 from max_to_telegram.max_client import MaxAuthenticationError, MaxClient, MaxClientError
@@ -149,6 +149,21 @@ async def validate_telegram(settings: Settings) -> dict[str, str]:
         await sender.close()
 
 
+async def discover_telegram_chats(settings: Settings) -> tuple[dict[str, object], ...]:
+    if settings.telegram_bot_token is None:
+        raise ConfigError("Telegram bot token is required for chat discovery")
+    sender = TelegramSender(
+        settings.telegram_bot_token,
+        "",
+        max_retries=settings.telegram_max_retries,
+        allow_missing_chat_id=True,
+    )
+    try:
+        return tuple(asdict(chat) for chat in await sender.discover_chats())
+    finally:
+        await sender.close()
+
+
 def inspect_state(settings: Settings) -> dict[str, int]:
     store = DedupeStore(settings.state_db).open()
     try:
@@ -162,22 +177,28 @@ def _parser() -> argparse.ArgumentParser:
         prog="max-to-telegram",
         description="Forward messages from selected MAX chats to Telegram",
     )
-    parser.add_argument(
+    modes = parser.add_mutually_exclusive_group()
+    modes.add_argument(
         "--check-config",
         action="store_true",
         help="validate local configuration without opening network connections",
     )
-    parser.add_argument(
+    modes.add_argument(
         "--check-telegram",
         action="store_true",
         help="call getMe/getChat without sending a message",
     )
-    parser.add_argument(
+    modes.add_argument(
+        "--discover-telegram-chats",
+        action="store_true",
+        help="list content-free chat IDs from recent Telegram bot updates",
+    )
+    modes.add_argument(
         "--check-state",
         action="store_true",
         help="print content-free durable outbox counters",
     )
-    parser.add_argument("--version", action="store_true", help="print version and exit")
+    modes.add_argument("--version", action="store_true", help="print version and exit")
     return parser
 
 
@@ -195,27 +216,45 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     try:
-        settings = Settings.from_env()
-        local_session = load_local_session(settings)
-        credentials = local_session.credentials
+        purpose: ValidationPurpose = "runtime"
+        if args.check_telegram:
+            purpose = "telegram"
+        elif args.discover_telegram_chats:
+            purpose = "telegram_discovery"
+        elif args.check_state:
+            purpose = "state"
+        settings = Settings.from_env(purpose=purpose)
+        local_session: LocalMaxSession | None = None
+        redacted_secrets = [settings.max_auth_token or "", settings.telegram_bot_token or ""]
+        if purpose == "runtime":
+            local_session = load_local_session(settings)
+            redacted_secrets.append(local_session.credentials.token)
         configure_logging(
             settings.log_level,
-            secrets=(credentials.token, settings.telegram_bot_token or ""),
+            secrets=redacted_secrets,
         )
         if args.check_config:
+            if local_session is None:
+                raise ConfigError("MAX session is required for configuration validation")
             summary = settings.safe_summary()
-            summary["max_viewer_id"] = credentials.viewer_id
+            summary["max_viewer_id"] = local_session.credentials.viewer_id
             print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
             return 0
         if args.check_telegram:
-            result = asyncio.run(validate_telegram(settings))
-            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            validation_result = asyncio.run(validate_telegram(settings))
+            print(json.dumps(validation_result, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.discover_telegram_chats:
+            discovered_result = asyncio.run(discover_telegram_chats(settings))
+            print(json.dumps(discovered_result, ensure_ascii=False, sort_keys=True))
             return 0
         if args.check_state:
             print(json.dumps(inspect_state(settings), sort_keys=True))
             return 0
 
         logger.info("Starting MAX-to-Telegram bridge: %s", settings.safe_summary())
+        if local_session is None:
+            raise ConfigError("MAX session is required to start the bridge")
         bundle = build_runtime(settings, local_session)
         return asyncio.run(run_runtime(bundle))
     except KeyboardInterrupt:

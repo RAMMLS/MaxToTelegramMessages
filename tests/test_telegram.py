@@ -267,6 +267,66 @@ async def test_validation_prefers_group_title() -> None:
 
 
 @pytest.mark.asyncio
+async def test_discovers_unique_chat_ids_without_reading_message_content() -> None:
+    session = FakeSession(
+        FakeResponse(
+            200,
+            {
+                "ok": True,
+                "result": [
+                    {
+                        "update_id": 1,
+                        "message": {
+                            "text": "private content must not be returned",
+                            "chat": {"id": 42, "type": "private", "first_name": "Ada"},
+                        },
+                    },
+                    {
+                        "update_id": 2,
+                        "edited_message": {
+                            "text": "another private value",
+                            "chat": {"id": 42, "type": "private", "first_name": "Ada"},
+                        },
+                    },
+                    {
+                        "update_id": 3,
+                        "channel_post": {
+                            "chat": {"id": -100, "type": "channel", "title": "Alerts"}
+                        },
+                    },
+                    {"update_id": 4, "message": {"chat": {"id": "bad", "type": "group"}}},
+                ],
+            },
+        )
+    )
+    sender = TelegramSender(
+        "token-1234567890123456", "", session=session, allow_missing_chat_id=True
+    )
+
+    chats = await sender.discover_chats()
+
+    assert [(chat.chat_id, chat.chat_type, chat.chat_title) for chat in chats] == [
+        (42, "private", "Ada"),
+        (-100, "channel", "Alerts"),
+    ]
+    request = session.requests[0][1]["json"]
+    assert request["limit"] == 100
+    assert request["timeout"] == 0
+    assert "text" not in request
+
+
+@pytest.mark.asyncio
+async def test_chat_discovery_rejects_malformed_success_response() -> None:
+    session = FakeSession(FakeResponse(200, {"ok": True, "result": {}}))
+    sender = TelegramSender(
+        "token-1234567890123456", "", session=session, allow_missing_chat_id=True
+    )
+
+    with pytest.raises(TelegramPermanentError, match="update list"):
+        await sender.discover_chats()
+
+
+@pytest.mark.asyncio
 async def test_validation_rejects_malformed_success_response() -> None:
     session = FakeSession(
         FakeResponse(200, {"ok": True, "result": {"id": 1}}),
