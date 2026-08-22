@@ -1,0 +1,59 @@
+name: Сообщить об ошибке
+description: Воспроизводимый дефект без приватных данных и секретов
+title: "bug: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Не прикладывайте `.env`, session JSON, SQLite, HAR, token, cookie,
+        телефонные номера и содержимое личных сообщений. Для уязвимостей
+        используйте private vulnerability reporting.
+  - type: input
+    id: commit
+    attributes:
+      label: Commit или версия
+      placeholder: 0123456 или 0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Область
+      options:
+        - Конфигурация и allowlist
+        - MAX WebSocket/protocol
+        - Parser
+        - Telegram delivery
+        - Durable outbox
+        - CLI/deployment
+        - Другое
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Шаги воспроизведения
+      description: Используйте синтетические ID и обезличенные payload.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Ожидаемое поведение
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Фактическое поведение
+    validations:
+      required: true
+  - type: checkboxes
+    id: privacy
+    attributes:
+      label: Проверка приватности
+      options:
+        - label: В отчёте нет реальных credentials и личного содержимого.
+          required: true
