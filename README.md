@@ -25,6 +25,7 @@
 - discovery-режим, который показывает встреченные чаты и не обращается к Telegram;
 - bounded async queue и локальный durable outbox SQLite;
 - дедупликация по ревизии MAX-сообщения;
+- opaque SHA-256 dedupe keys без chat/message ID в delivered history;
 - Telegram `sendMessage`, безопасный HTML, разбиение длинного текста;
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
@@ -288,6 +289,8 @@ outbox восстанавливается до обработки новых с�
 SQLite-файл содержит текст только у незавершённых доставок и должен оставаться
 локальным. Он, `.env`, session JSON, WAL/SHM и виртуальные окружения исключены из
 Git.
+После доставки SQLite сохраняет только opaque digest ревизии и Telegram message
+IDs; MAX chat/message IDs из dedupe key восстановить нельзя.
 
 Рядом со state DB создаётся пустой process-lock. Он не содержит данных и не
 удаляется после остановки, но OS-lock освобождается автоматически. Одновременно

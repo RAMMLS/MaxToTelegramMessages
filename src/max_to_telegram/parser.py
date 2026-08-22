@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
@@ -69,7 +71,12 @@ class ParsedMessage:
     @property
     def dedupe_key(self) -> str:
         revision = self.update_time or self.timestamp_raw
-        return f"{self.chat_id}:{self.message_id}:{self.status or 'NEW'}:{revision}"
+        canonical = json.dumps(
+            [self.chat_id, self.message_id, self.status or "NEW", revision],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        ).encode("utf-8")
+        return f"v1:{hashlib.sha256(canonical).hexdigest()}"
 
 
 @dataclass(frozen=True, slots=True)

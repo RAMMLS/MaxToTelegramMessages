@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import datetime, timezone
 
 import pytest
@@ -99,7 +100,20 @@ def test_policy_allows_edited_message_as_a_revision() -> None:
     )
 
     assert ChatPolicy(frozenset({-42})).decide(message) is PolicyDecision.FORWARD
-    assert message.dedupe_key.endswith(":EDITED:1700000000500")
+    original = MessageParser(viewer_id=123).parse(push(text_payload()))
+    assert message.dedupe_key.startswith("v1:")
+    assert message.dedupe_key != original.dedupe_key
+
+
+def test_dedupe_key_is_opaque_and_separator_collision_resistant() -> None:
+    original = MessageParser(viewer_id=123).parse(push(text_payload()))
+    first = replace(original, message_id="a:b", status="c")
+    second = replace(original, message_id="a", status="b:c")
+
+    assert first.dedupe_key != second.dedupe_key
+    assert len(first.dedupe_key) == 67
+    assert str(first.chat_id) not in first.dedupe_key
+    assert first.message_id not in first.dedupe_key
 
 
 def test_empty_message_is_rejected_by_policy() -> None:
