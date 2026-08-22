@@ -102,7 +102,8 @@ git diff --check
 - [ ] Удаление chat ID из allowlist до рестарта удаляет его pending delivery без
       отправки.
 - [ ] `--check-state` показывает `integrity_ok=true`, а также нулевой
-      `unrecoverable_pending`; legacy pending без тела блокирует startup.
+      `unrecoverable_pending` и `invalid_progress`; legacy pending без тела или
+      битый chunk checkpoint блокирует startup.
 
 ## 7. Session lifecycle
 

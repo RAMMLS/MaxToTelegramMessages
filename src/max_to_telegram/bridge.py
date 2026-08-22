@@ -184,6 +184,11 @@ class Bridge:
                 "pending outbox contains records without recoverable message data; "
                 "inspect the state database before restarting"
             )
+        if health.invalid_progress:
+            raise DedupeError(
+                "pending outbox contains invalid Telegram chunk progress; "
+                "inspect the state database before restarting"
+            )
         pending_count = store.stats().pending
         if pending_count > 100_000:
             raise DedupeError("pending outbox exceeds the 100000-message recovery limit")
