@@ -89,7 +89,9 @@ def test_alwaysdata_runbook_uses_foreground_service_without_inline_secrets() -> 
     runbook = (PROJECT_ROOT / "deploy/alwaysdata/README.md").read_text(encoding="utf-8")
 
     assert "command: `.venv/bin/max-to-telegram`" in runbook
-    assert "working directory: `/home/ACCOUNT/max-to-telegram`" in runbook
+    assert "working directory: `max-to-telegram`" in runbook
+    assert "environment: empty" in runbook
+    assert "/home/ACCOUNT/home/ACCOUNT/max-to-telegram" in runbook
     assert "monitoring command: empty" in runbook
     assert "No incoming port" in runbook
     assert "Do not paste tokens into the service command" in runbook

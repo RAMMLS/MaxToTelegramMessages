@@ -83,9 +83,16 @@ the intended source chat and leave `MAX_DISCOVERY_MODE=false` for delivery.
 In `Advanced -> Services`, create one service with:
 
 - command: `.venv/bin/max-to-telegram`;
-- working directory: `/home/ACCOUNT/max-to-telegram`;
-- environment: `PYTHON_VERSION=3.12`;
+- working directory: `max-to-telegram`;
+- environment: empty;
 - monitoring command: empty.
+
+The administration form displays `/home/ACCOUNT/` before the working-directory
+field and prepends it automatically. Enter only `max-to-telegram`; entering the
+absolute path would resolve to the invalid nested path
+`/home/ACCOUNT/home/ACCOUNT/max-to-telegram`. The virtual environment already
+pins the Python interpreter chosen by the bootstrap, so the service does not
+need a separate `PYTHON_VERSION` value.
 
 The command stays in the foreground as required by alwaysdata. The platform
 restarts it after an unexpected exit. No incoming port or public site is needed.
