@@ -17,6 +17,8 @@ from max_to_telegram.cli import (
 from max_to_telegram.config import ConfigError, Settings
 from max_to_telegram.dedupe import OutboxStats
 
+BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+
 
 class FakeBridge:
     def __init__(
@@ -165,7 +167,7 @@ async def test_builds_delivery_runtime_with_exact_allowlist(tmp_path) -> None:
             "MAX_VIEWER_ID": "123",
             "MAX_AUTH_TOKEN": "m" * 32,
             "MAX_CHAT_IDS": "42,-77",
-            "TELEGRAM_BOT_TOKEN": "telegram-token-value",
+            "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
             "TELEGRAM_CHAT_ID": "99",
             "BRIDGE_STATE_DB": str(tmp_path / "state.db"),
         }
@@ -184,7 +186,7 @@ async def test_builds_delivery_runtime_with_exact_allowlist(tmp_path) -> None:
 
 def test_check_config_prints_only_safe_summary(monkeypatch, capsys) -> None:
     max_token = "m" * 32
-    telegram_token = "telegram-secret-token-value"
+    telegram_token = BOT_TOKEN
     env = {
         "MAX_VIEWER_ID": "123",
         "MAX_AUTH_TOKEN": max_token,
@@ -228,7 +230,7 @@ def test_version_does_not_require_configuration(capsys) -> None:
 
 
 def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
-    telegram_token = "telegram-secret-token-value"
+    telegram_token = BOT_TOKEN
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "99")
     monkeypatch.chdir("/")
@@ -249,7 +251,7 @@ def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
 
 
 def test_discovers_telegram_chats_without_max_configuration(monkeypatch, capsys) -> None:
-    telegram_token = "telegram-secret-token-value"
+    telegram_token = BOT_TOKEN
     for key in ("MAX_VIEWER_ID", "MAX_AUTH_TOKEN", "MAX_SESSION_FILE", "TELEGRAM_CHAT_ID"):
         monkeypatch.delenv(key, raising=False)
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)

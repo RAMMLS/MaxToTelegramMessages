@@ -18,6 +18,8 @@ from max_to_telegram.telegram import (
     format_message_chunks,
 )
 
+BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+
 
 class FakeResponse:
     def __init__(self, status: int, document: Any) -> None:
@@ -106,7 +108,7 @@ def test_splits_pathological_html_content_within_limit() -> None:
 @pytest.mark.asyncio
 async def test_sends_message_and_returns_telegram_id() -> None:
     session = FakeSession(FakeResponse(200, {"ok": True, "result": {"message_id": 99}}))
-    sender = TelegramSender("token-1234567890123456", "42", session=session)
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
 
     result = await sender.send(parsed_message())
 
@@ -137,7 +139,7 @@ async def test_rate_limit_uses_server_retry_after() -> None:
         sleeps.append(delay)
 
     sender = TelegramSender(
-        "token-1234567890123456",
+        BOT_TOKEN,
         "42",
         max_retries=2,
         session=session,
@@ -159,9 +161,7 @@ async def test_retries_server_error_with_exponential_delay() -> None:
     async def fake_sleep(delay: float) -> None:
         sleeps.append(delay)
 
-    sender = TelegramSender(
-        "token-1234567890123456", "42", max_retries=1, session=session, sleep=fake_sleep
-    )
+    sender = TelegramSender(BOT_TOKEN, "42", max_retries=1, session=session, sleep=fake_sleep)
 
     assert await sender.send(parsed_message()) == (101,)
     assert sleeps == [0.5]
@@ -169,7 +169,7 @@ async def test_retries_server_error_with_exponential_delay() -> None:
 
 @pytest.mark.asyncio
 async def test_retries_network_error_without_leaking_url() -> None:
-    token = "token-super-secret-1234567890"
+    token = BOT_TOKEN
     session = FakeSession(
         aiohttp.ClientConnectionError(f"request failed for https://api.telegram.org/bot{token}")
     )
@@ -187,7 +187,7 @@ async def test_retries_network_error_without_leaking_url() -> None:
 
 @pytest.mark.asyncio
 async def test_does_not_retry_permanent_error_and_redacts_token() -> None:
-    token = "token-super-secret-1234567890"
+    token = BOT_TOKEN
     session = FakeSession(
         FakeResponse(
             401,
@@ -209,7 +209,7 @@ async def test_validation_error_names_the_actual_api_method() -> None:
     session = FakeSession(
         FakeResponse(401, {"ok": False, "error_code": 401, "description": "Unauthorized"})
     )
-    sender = TelegramSender("token-1234567890123456", "42", session=session)
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
 
     with pytest.raises(TelegramPermanentError, match=r"rejected getMe \(401\)"):
         await sender.validate()
@@ -224,7 +224,7 @@ async def test_sends_all_long_message_chunks() -> None:
         for index in range(1, len(expected_chunks) + 1)
     ]
     session = FakeSession(*responses)
-    sender = TelegramSender("token-1234567890123456", "42", session=session)
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
 
     result = await sender.send(message)
 
@@ -244,7 +244,7 @@ async def test_validates_bot_and_destination_without_sending_message() -> None:
             },
         ),
     )
-    sender = TelegramSender("token-1234567890123456", "42", session=session)
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
 
     result = await sender.validate()
 
@@ -261,7 +261,7 @@ async def test_validation_prefers_group_title() -> None:
         FakeResponse(200, {"ok": True, "result": {"username": "bridge_bot"}}),
         FakeResponse(200, {"ok": True, "result": {"type": "group", "title": "Selected"}}),
     )
-    sender = TelegramSender("token-1234567890123456", "-42", session=session)
+    sender = TelegramSender(BOT_TOKEN, "-42", session=session)
 
     assert (await sender.validate()).chat_title == "Selected"
 
@@ -299,9 +299,7 @@ async def test_discovers_unique_chat_ids_without_reading_message_content() -> No
             },
         )
     )
-    sender = TelegramSender(
-        "token-1234567890123456", "", session=session, allow_missing_chat_id=True
-    )
+    sender = TelegramSender(BOT_TOKEN, "", session=session, allow_missing_chat_id=True)
 
     chats = await sender.discover_chats()
 
@@ -319,9 +317,7 @@ async def test_discovers_unique_chat_ids_without_reading_message_content() -> No
 @pytest.mark.asyncio
 async def test_chat_discovery_rejects_malformed_success_response() -> None:
     session = FakeSession(FakeResponse(200, {"ok": True, "result": {}}))
-    sender = TelegramSender(
-        "token-1234567890123456", "", session=session, allow_missing_chat_id=True
-    )
+    sender = TelegramSender(BOT_TOKEN, "", session=session, allow_missing_chat_id=True)
 
     with pytest.raises(TelegramPermanentError, match="update list"):
         await sender.discover_chats()
@@ -333,7 +329,7 @@ async def test_validation_rejects_malformed_success_response() -> None:
         FakeResponse(200, {"ok": True, "result": {"id": 1}}),
         FakeResponse(200, {"ok": True, "result": {"type": "private"}}),
     )
-    sender = TelegramSender("token-1234567890123456", "42", session=session)
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
 
     with pytest.raises(TelegramPermanentError, match="username"):
         await sender.validate()
@@ -344,7 +340,9 @@ async def test_validation_rejects_malformed_success_response() -> None:
     [
         ("", "42", "token"),
         ("bad token", "42", "token"),
-        ("token-1234567890123456", "", "chat ID"),
+        ("123:short", "42", "token"),
+        ("1234567890:invalid/token-value", "42", "token"),
+        (BOT_TOKEN, "", "chat ID"),
     ],
 )
 def test_rejects_invalid_sender_configuration(token: str, chat_id: str, message: str) -> None:

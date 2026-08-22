@@ -6,13 +6,15 @@ import pytest
 
 from max_to_telegram.config import ConfigError, Settings
 
+BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+
 
 def complete_env(**overrides: str) -> dict[str, str]:
     env = {
         "MAX_VIEWER_ID": "123",
         "MAX_AUTH_TOKEN": "max-secret",
         "MAX_CHAT_IDS": "10,-20",
-        "TELEGRAM_BOT_TOKEN": "telegram-secret",
+        "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
         "TELEGRAM_CHAT_ID": "999",
     }
     env.update(overrides)
@@ -48,18 +50,24 @@ def test_discovery_mode_allows_empty_allowlist_and_no_telegram() -> None:
 
 
 def test_telegram_discovery_purpose_requires_only_bot_token() -> None:
-    settings = Settings.from_env(
-        {"TELEGRAM_BOT_TOKEN": "telegram-secret"}, purpose="telegram_discovery"
-    )
+    settings = Settings.from_env({"TELEGRAM_BOT_TOKEN": BOT_TOKEN}, purpose="telegram_discovery")
 
-    assert settings.telegram_bot_token == "telegram-secret"
+    assert settings.telegram_bot_token == BOT_TOKEN
     assert settings.telegram_chat_id is None
     assert settings.max_auth_token is None
 
 
 def test_telegram_validation_purpose_requires_destination() -> None:
     with pytest.raises(ConfigError, match="TELEGRAM_CHAT_ID"):
-        Settings.from_env({"TELEGRAM_BOT_TOKEN": "telegram-secret"}, purpose="telegram")
+        Settings.from_env({"TELEGRAM_BOT_TOKEN": BOT_TOKEN}, purpose="telegram")
+
+
+@pytest.mark.parametrize("purpose", ["runtime", "telegram", "telegram_discovery"])
+def test_rejects_malformed_telegram_token_for_active_purpose(purpose: str) -> None:
+    env = complete_env(TELEGRAM_BOT_TOKEN="1234567890:bad/token")
+
+    with pytest.raises(ConfigError, match="TELEGRAM_BOT_TOKEN is malformed"):
+        Settings.from_env(env, purpose=purpose)  # type: ignore[arg-type]
 
 
 def test_state_inspection_purpose_needs_no_credentials() -> None:
@@ -81,7 +89,7 @@ def test_requires_complete_direct_auth_pair() -> None:
             {
                 "MAX_VIEWER_ID": "123",
                 "MAX_CHAT_IDS": "10",
-                "TELEGRAM_BOT_TOKEN": "telegram-secret",
+                "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
                 "TELEGRAM_CHAT_ID": "999",
             }
         )
@@ -92,7 +100,7 @@ def test_session_file_can_replace_direct_credentials() -> None:
         {
             "MAX_SESSION_FILE": ".max-session.json",
             "MAX_CHAT_IDS": "10",
-            "TELEGRAM_BOT_TOKEN": "telegram-secret",
+            "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
             "TELEGRAM_CHAT_ID": "999",
         }
     )
@@ -108,9 +116,9 @@ def test_repr_and_safe_summary_do_not_leak_secrets() -> None:
     summary = repr(settings.safe_summary())
 
     assert "max-secret" not in rendered
-    assert "telegram-secret" not in rendered
+    assert BOT_TOKEN not in rendered
     assert "max-secret" not in summary
-    assert "telegram-secret" not in summary
+    assert BOT_TOKEN not in summary
     assert "999" not in summary
 
 

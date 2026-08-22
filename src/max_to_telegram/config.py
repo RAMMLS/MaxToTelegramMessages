@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 import stat
 import uuid
 from collections.abc import Mapping
@@ -26,7 +27,12 @@ _DEFAULT_MAX_WS_URL = "wss://api.oneme.ru/websocket"
 _DEFAULT_MAX_APP_VERSION = "26.8.8"
 _DEFAULT_MAX_LOCALE = "ru"
 _MAX_DOTENV_BYTES = 64 * 1024
+_TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
 ValidationPurpose = Literal["runtime", "telegram", "telegram_discovery", "state"]
+
+
+def is_valid_telegram_bot_token(value: str | None) -> bool:
+    return value is not None and _TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(value) is not None
 
 
 def _parse_bool(name: str, raw: str | None, *, default: bool = False) -> bool:
@@ -193,16 +199,22 @@ class Settings:
                     )
                 if not self.telegram_bot_token:
                     errors.append("TELEGRAM_BOT_TOKEN is required outside discovery mode")
+                elif not is_valid_telegram_bot_token(self.telegram_bot_token):
+                    errors.append("TELEGRAM_BOT_TOKEN is malformed")
                 if not self.telegram_chat_id:
                     errors.append("TELEGRAM_CHAT_ID is required outside discovery mode")
         elif purpose == "telegram":
             if not self.telegram_bot_token:
                 errors.append("TELEGRAM_BOT_TOKEN is required")
+            elif not is_valid_telegram_bot_token(self.telegram_bot_token):
+                errors.append("TELEGRAM_BOT_TOKEN is malformed")
             if not self.telegram_chat_id:
                 errors.append("TELEGRAM_CHAT_ID is required")
         elif purpose == "telegram_discovery":
             if not self.telegram_bot_token:
                 errors.append("TELEGRAM_BOT_TOKEN is required")
+            elif not is_valid_telegram_bot_token(self.telegram_bot_token):
+                errors.append("TELEGRAM_BOT_TOKEN is malformed")
         elif purpose != "state":
             errors.append("unknown configuration validation purpose")
 
