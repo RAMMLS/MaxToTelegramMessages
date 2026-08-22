@@ -21,6 +21,7 @@ class AuthError(ValueError):
 
 
 _MAX_SESSION_FILE_BYTES = 64 * 1024
+_MAX_VIEWER_ID = 2**63 - 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,8 +32,8 @@ class MaxCredentials:
     token: str = field(repr=False)
 
     def __post_init__(self) -> None:
-        if self.viewer_id <= 0:
-            raise AuthError("MAX viewerId must be a positive integer")
+        if not 1 <= self.viewer_id <= _MAX_VIEWER_ID:
+            raise AuthError("MAX viewerId must be a positive signed int64 integer")
         if not 16 <= len(self.token) <= 4096:
             raise AuthError("MAX token has an unexpected length")
         if self.token != self.token.strip() or any(ord(char) < 32 for char in self.token):

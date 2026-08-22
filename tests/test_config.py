@@ -91,6 +91,18 @@ def test_rejects_invalid_chat_ids(chat_ids: str) -> None:
         Settings.from_env(complete_env(MAX_CHAT_IDS=chat_ids))
 
 
+@pytest.mark.parametrize("chat_id", [str(2**63), str(-(2**63) - 1)])
+def test_rejects_out_of_range_max_chat_ids(chat_id: str) -> None:
+    with pytest.raises(ConfigError, match="signed int64"):
+        Settings.from_env(complete_env(MAX_CHAT_IDS=chat_id))
+
+
+@pytest.mark.parametrize("viewer_id", [str(2**63), "-1", "0"])
+def test_rejects_out_of_range_direct_max_viewer_id(viewer_id: str) -> None:
+    with pytest.raises(ConfigError, match="MAX_VIEWER_ID"):
+        Settings.from_env(complete_env(MAX_VIEWER_ID=viewer_id))
+
+
 def test_invalid_chat_id_error_does_not_echo_supplied_value() -> None:
     suspicious = "private-value-that-must-not-reach-journal"
     with pytest.raises(ConfigError) as raised:
