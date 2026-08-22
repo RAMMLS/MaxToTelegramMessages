@@ -108,6 +108,13 @@ class TelegramSender:
                 self.save_progress(message.dedupe_key, tuple(message_ids))
         return tuple(message_ids)
 
+    async def send_text(self, text: str) -> int:
+        """Send one trusted internal HTML message, such as a health report."""
+
+        if not isinstance(text, str) or not text or len(text) > TELEGRAM_TEXT_LIMIT:
+            raise TelegramPermanentError("Telegram service message has an invalid length")
+        return await self._send_chunk(text)
+
     async def validate(self) -> TelegramValidation:
         """Validate the bot token and destination without sending a message."""
 

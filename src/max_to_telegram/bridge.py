@@ -35,6 +35,10 @@ class MessageSender(Protocol):
     async def close(self) -> None: ...
 
 
+class Reporter(Protocol):
+    async def run(self) -> None: ...
+
+
 @dataclass(frozen=True, slots=True)
 class DiscoveredChat:
     chat_id: int
@@ -70,6 +74,7 @@ class Bridge:
         sender: MessageSender | TelegramSender | None = None,
         discovery_sink: Callable[[DiscoveredChat], None] | None = None,
         delivery_preflight: Callable[[], Awaitable[object]] | None = None,
+        reporter: Reporter | None = None,
     ) -> None:
         if queue_size < 1:
             raise ValueError("queue size must be positive")
@@ -83,6 +88,7 @@ class Bridge:
         self.sender = sender
         self.discovery_sink = discovery_sink
         self.delivery_preflight = delivery_preflight
+        self.reporter = reporter
         self.stats = BridgeStats()
         self._queue: asyncio.Queue[ParsedMessage | object] = asyncio.Queue(maxsize=queue_size)
         self._queued_keys: set[str] = set()
@@ -101,9 +107,14 @@ class Bridge:
 
         producer = asyncio.create_task(self._produce(), name="max-event-producer")
         worker = asyncio.create_task(self._deliver(), name="telegram-delivery-worker")
-        tasks = (producer, worker)
+        reporter = (
+            asyncio.create_task(self.reporter.run(), name="telegram-daily-reporter")
+            if self.reporter is not None
+            else None
+        )
+        tasks = (producer, worker) if reporter is None else (producer, worker, reporter)
         try:
-            await asyncio.gather(*tasks)
+            await asyncio.gather(producer, worker)
         finally:
             for task in tasks:
                 if not task.done():
@@ -137,7 +148,9 @@ class Bridge:
                 ) from exc
             return
         if self.policy.decide(message) is PolicyDecision.FORWARD:
-            store.enqueue(message)
+            claim = store.enqueue(message)
+            if claim.previous_attempts == 0:
+                store.record_report_metric("selected_messages")
 
     def _frame_targets_allowed_chat(self, frame: Frame) -> bool:
         if not isinstance(frame.payload, dict):
@@ -163,12 +176,15 @@ class Bridge:
                     message = self.parser.parse(frame)
                 except MessageParseError as exc:
                     self.stats.parse_errors += 1
+                    if self.store is not None:
+                        self.store.record_report_metric("parse_errors")
                     logger.warning("Ignoring malformed MAX message push: %s", exc)
                     continue
                 self.stats.parsed_messages += 1
                 if self.discovery_mode:
                     self._record_discovery(message)
                     continue
+                self._delivery_store().record_report_metric("received_messages")
                 await self._apply_policy_and_enqueue(message)
         finally:
             if not self.discovery_mode:
@@ -212,6 +228,7 @@ class Bridge:
         decision = self.policy.decide(message)
         if decision is not PolicyDecision.FORWARD:
             self.stats.rejected_messages += 1
+            store.record_report_metric("rejected_messages")
             logger.debug(
                 "MAX message rejected by policy: reason=%s",
                 decision.value,
@@ -221,7 +238,10 @@ class Bridge:
         claim = store.enqueue(message)
         if not claim.should_deliver or message.dedupe_key in self._queued_keys:
             self.stats.duplicate_messages += 1
+            store.record_report_metric("duplicate_messages")
             return
+        if claim.previous_attempts == 0:
+            store.record_report_metric("selected_messages")
         await self._queue_message(message)
 
     async def _queue_message(self, message: ParsedMessage) -> None:
@@ -248,8 +268,10 @@ class Bridge:
                     store.mark_delivered(item.dedupe_key, telegram_ids)
                 except TelegramError as exc:
                     store.mark_failed(item.dedupe_key, type(exc).__name__)
+                    store.record_report_metric("delivery_errors")
                     raise
                 self.stats.delivered_messages += 1
+                store.record_report_metric("delivered_messages")
                 logger.info(
                     "Forwarded one selected MAX message: chunks=%s",
                     len(telegram_ids),

@@ -1,6 +1,6 @@
 # История изменений
 
-Проект пока не выпущен; рабочая сборка находится в `integration/nightly`.
+Стабильная сборка находится в `main`; новые функции проходят отдельные PR.
 
 ## [Unreleased]
 
@@ -52,6 +52,10 @@
 - CI-only JUnit formatter исключён из production wheel и оставлен в test tooling;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
+- persistent ежедневный Telegram heartbeat с состоянием MAX, outbox и
+  content-free счётчиками за период;
+- SQLite schema v2 с сохранением времени последнего отчёта и counters через
+  рестарты;
 
 ### Ограничения
 

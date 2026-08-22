@@ -13,7 +13,7 @@ from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Protocol, cast
+from typing import Literal, Protocol, cast
 
 from max_to_telegram.parser import ParsedMessage
 from max_to_telegram.safe_files import enforce_private_fd_permissions
@@ -51,7 +51,7 @@ class DedupeError(RuntimeError):
     """Raised when the delivery state cannot be read or updated safely."""
 
 
-_SCHEMA_VERSION = 1
+_SCHEMA_VERSION = 2
 _REQUIRED_DELIVERY_COLUMNS = frozenset(
     {
         "dedupe_key",
@@ -89,6 +89,63 @@ class OutboxHealth:
     recoverable_pending: int
     unrecoverable_pending: int
     invalid_progress: int
+
+
+ReportMetric = Literal[
+    "received_messages",
+    "selected_messages",
+    "delivered_messages",
+    "duplicate_messages",
+    "rejected_messages",
+    "parse_errors",
+    "delivery_errors",
+]
+_REPORT_METRICS: tuple[ReportMetric, ...] = (
+    "received_messages",
+    "selected_messages",
+    "delivered_messages",
+    "duplicate_messages",
+    "rejected_messages",
+    "parse_errors",
+    "delivery_errors",
+)
+_REPORT_INCREMENT_SQL: dict[ReportMetric, str] = {
+    "received_messages": (
+        "UPDATE report_state SET received_messages = received_messages + ? WHERE singleton = 1"
+    ),
+    "selected_messages": (
+        "UPDATE report_state SET selected_messages = selected_messages + ? WHERE singleton = 1"
+    ),
+    "delivered_messages": (
+        "UPDATE report_state SET delivered_messages = delivered_messages + ? WHERE singleton = 1"
+    ),
+    "duplicate_messages": (
+        "UPDATE report_state SET duplicate_messages = duplicate_messages + ? WHERE singleton = 1"
+    ),
+    "rejected_messages": (
+        "UPDATE report_state SET rejected_messages = rejected_messages + ? WHERE singleton = 1"
+    ),
+    "parse_errors": ("UPDATE report_state SET parse_errors = parse_errors + ? WHERE singleton = 1"),
+    "delivery_errors": (
+        "UPDATE report_state SET delivery_errors = delivery_errors + ? WHERE singleton = 1"
+    ),
+}
+
+
+@dataclass(frozen=True, slots=True)
+class DailyReportSnapshot:
+    """Persistent, content-free counters since the last successful report."""
+
+    period_started_at: datetime
+    last_report_at: datetime | None
+    generated_at: datetime
+    received_messages: int
+    selected_messages: int
+    delivered_messages: int
+    duplicate_messages: int
+    rejected_messages: int
+    parse_errors: int
+    delivery_errors: int
 
 
 class DedupeStore:
@@ -143,6 +200,34 @@ class DedupeStore:
                 raise DedupeError("delivery state database has an incompatible schema")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS deliveries_updated_at ON deliveries(updated_at)"
+            )
+            connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS report_state (
+                    singleton INTEGER PRIMARY KEY CHECK (singleton = 1),
+                    period_started_at TEXT NOT NULL,
+                    last_report_at TEXT,
+                    received_messages INTEGER NOT NULL DEFAULT 0
+                        CHECK (received_messages >= 0),
+                    selected_messages INTEGER NOT NULL DEFAULT 0
+                        CHECK (selected_messages >= 0),
+                    delivered_messages INTEGER NOT NULL DEFAULT 0
+                        CHECK (delivered_messages >= 0),
+                    duplicate_messages INTEGER NOT NULL DEFAULT 0
+                        CHECK (duplicate_messages >= 0),
+                    rejected_messages INTEGER NOT NULL DEFAULT 0
+                        CHECK (rejected_messages >= 0),
+                    parse_errors INTEGER NOT NULL DEFAULT 0 CHECK (parse_errors >= 0),
+                    delivery_errors INTEGER NOT NULL DEFAULT 0 CHECK (delivery_errors >= 0)
+                )
+                """
+            )
+            connection.execute(
+                """
+                INSERT OR IGNORE INTO report_state (singleton, period_started_at)
+                VALUES (1, ?)
+                """,
+                (_utc_iso(None),),
             )
             connection.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
         except BaseException as exc:
@@ -431,6 +516,116 @@ class DedupeStore:
             invalid_progress=invalid_progress,
         )
 
+    def record_report_metric(self, metric: ReportMetric, *, amount: int = 1) -> None:
+        """Increment one allowlisted operational counter without storing content."""
+
+        if metric not in _REPORT_METRICS:
+            raise DedupeError("unknown daily report metric")
+        if isinstance(amount, bool) or not isinstance(amount, int) or amount < 1:
+            raise DedupeError("daily report metric amount must be a positive integer")
+        connection = self._require_connection()
+        try:
+            cursor = connection.execute(
+                _REPORT_INCREMENT_SQL[metric],
+                (amount,),
+            )
+        except sqlite3.Error as exc:
+            raise DedupeError("could not update daily report counters") from exc
+        if cursor.rowcount != 1:
+            raise DedupeError("daily report state is missing")
+
+    def daily_report_snapshot(self, *, now: datetime | None = None) -> DailyReportSnapshot:
+        """Load the current report period and counters."""
+
+        generated_at = _as_utc(now or datetime.now(timezone.utc))
+        connection = self._require_connection()
+        try:
+            row = connection.execute(
+                """
+                SELECT period_started_at, last_report_at,
+                    received_messages, selected_messages, delivered_messages,
+                    duplicate_messages, rejected_messages, parse_errors, delivery_errors
+                FROM report_state WHERE singleton = 1
+                """
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise DedupeError("could not load daily report counters") from exc
+        if row is None:
+            raise DedupeError("daily report state is missing")
+        try:
+            period_started_at = _parse_utc_iso(str(row[0]))
+            last_report_at = None if row[1] is None else _parse_utc_iso(str(row[1]))
+            counters = tuple(int(value) for value in row[2:])
+        except (TypeError, ValueError) as exc:
+            raise DedupeError("daily report state is corrupt") from exc
+        if len(counters) != len(_REPORT_METRICS) or any(value < 0 for value in counters):
+            raise DedupeError("daily report counters are corrupt")
+        return DailyReportSnapshot(
+            period_started_at=period_started_at,
+            last_report_at=last_report_at,
+            generated_at=generated_at,
+            **dict(zip(_REPORT_METRICS, counters, strict=True)),
+        )
+
+    def mark_daily_report_sent(
+        self,
+        snapshot: DailyReportSnapshot,
+        *,
+        sent_at: datetime | None = None,
+    ) -> None:
+        """Advance the period after Telegram accepts a report.
+
+        Counters are subtracted instead of reset so events recorded while the
+        network request was in flight stay in the next report.
+        """
+
+        if not isinstance(snapshot, DailyReportSnapshot):
+            raise DedupeError("daily report acknowledgement requires a snapshot")
+        timestamp = _as_utc(sent_at or datetime.now(timezone.utc))
+        snapshot_values = tuple(getattr(snapshot, metric) for metric in _REPORT_METRICS)
+        if any(
+            isinstance(value, bool) or not isinstance(value, int) or value < 0
+            for value in snapshot_values
+        ):
+            raise DedupeError("daily report snapshot counters are invalid")
+        generated_at = _as_utc(snapshot.generated_at)
+        if generated_at > timestamp:
+            raise DedupeError("daily report acknowledgement predates its snapshot")
+        connection = self._require_connection()
+        parameters = (
+            *snapshot_values,
+            generated_at.isoformat(timespec="microseconds"),
+            timestamp.isoformat(timespec="microseconds"),
+            *snapshot_values,
+        )
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE report_state
+                SET received_messages = received_messages - ?,
+                    selected_messages = selected_messages - ?,
+                    delivered_messages = delivered_messages - ?,
+                    duplicate_messages = duplicate_messages - ?,
+                    rejected_messages = rejected_messages - ?,
+                    parse_errors = parse_errors - ?,
+                    delivery_errors = delivery_errors - ?,
+                    period_started_at = ?, last_report_at = ?
+                WHERE singleton = 1
+                    AND received_messages >= ?
+                    AND selected_messages >= ?
+                    AND delivered_messages >= ?
+                    AND duplicate_messages >= ?
+                    AND rejected_messages >= ?
+                    AND parse_errors >= ?
+                    AND delivery_errors >= ?
+                """,
+                parameters,
+            )
+        except sqlite3.Error as exc:
+            raise DedupeError("could not acknowledge the daily report") from exc
+        if cursor.rowcount != 1:
+            raise DedupeError("daily report counters changed unexpectedly")
+
     def mark_delivered(
         self,
         dedupe_key: str,
@@ -657,6 +852,13 @@ def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise DedupeError("timestamps must include a timezone")
     return value.astimezone(timezone.utc)
+
+
+def _parse_utc_iso(value: str) -> datetime:
+    parsed = datetime.fromisoformat(value)
+    if parsed.tzinfo is None:
+        raise ValueError("timestamp has no timezone")
+    return parsed.astimezone(timezone.utc)
 
 
 def _rollback(connection: sqlite3.Connection) -> None:

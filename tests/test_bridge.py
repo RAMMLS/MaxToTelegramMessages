@@ -125,12 +125,17 @@ async def test_forwards_only_selected_incoming_chat(tmp_path) -> None:
     )
     try:
         await runtime.run()
+        report = store.daily_report_snapshot()
     finally:
         store.close()
 
     assert [message.message_id for message in sender.messages] == ["1"]
     assert runtime.stats.delivered_messages == 1
     assert runtime.stats.rejected_messages == 2
+    assert report.received_messages == 3
+    assert report.selected_messages == 1
+    assert report.delivered_messages == 1
+    assert report.rejected_messages == 2
 
 
 @pytest.mark.asyncio

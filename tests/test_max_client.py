@@ -186,6 +186,7 @@ async def test_durable_hook_completes_before_message_ack() -> None:
         assert frame.opcode == push.opcode
         assert frame.seq == push.seq
         assert frame.payload == push.payload
+        assert client.is_connected is True
         observed_sent_counts.append(len(websocket.sent))
 
     client = MaxClient(
@@ -199,6 +200,7 @@ async def test_durable_hook_completes_before_message_ack() -> None:
 
     assert [item.payload for item in received] == [push.payload]
     assert observed_sent_counts == [2]
+    assert client.is_connected is False
     assert len(websocket.sent) == 3
     assert codec.decode(websocket.sent[-1]).cmd == 1
 

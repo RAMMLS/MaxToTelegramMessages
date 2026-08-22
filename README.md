@@ -31,6 +31,7 @@
 - opaque SHA-256 dedupe keys без chat/message ID в delivered history;
 - single-instance lock через `flock` на POSIX и `msvcrt` на Windows;
 - Telegram `sendMessage`, безопасный HTML, разбиение длинного текста;
+- опциональный ежедневный heartbeat со счётчиками без текста сообщений и ID;
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
 - до 20 секунд graceful drain после сигнала с forced cancel и durable recovery;
@@ -114,7 +115,7 @@ legacy pending-записи без тела сообщения. При нену�
 уведомления.
 Аналогично `invalid_progress` блокирует запуск, если JSON checkpoint частей
 повреждён или содержит недопустимые Telegram message IDs.
-SQLite schema имеет `user_version=1`; bridge мигрирует поддерживаемую legacy
+SQLite schema имеет `user_version=2`; bridge мигрирует поддерживаемую legacy
 таблицу, но не открывает DB от более новой/несовместимой версии.
 
 Запуск:
@@ -274,6 +275,8 @@ MAX_DISCOVERY_MODE=false
 
 TELEGRAM_BOT_TOKEN=replace-with-telegram-token
 TELEGRAM_CHAT_ID=333333333
+# Первый heartbeat отправляется после включения, следующие — раз в 24 часа.
+DAILY_REPORT_ENABLED=true
 
 BRIDGE_QUEUE_SIZE=100
 BRIDGE_STATE_DB=.max-to-telegram.sqlite3
@@ -285,6 +288,30 @@ LOG_LEVEL=INFO
 `MAX_DEVICE_ID` необязателен. В файловом режиме UUID создаётся и сохраняется в
 session JSON. При прямом `MAX_AUTH_TOKEN` из окружения UUID создаётся при каждом
 старте, поэтому для стабильности лучше один раз задать `MAX_DEVICE_ID` явно.
+
+## Ежедневный отчёт о работе
+
+`DAILY_REPORT_ENABLED=true` включает служебный heartbeat в тот же Telegram-чат.
+Первый отчёт отправляется через 10 секунд после запуска reporter, чтобы MAX успел
+пройти login; следующие — через 24 часа
+после последнего успешно принятого Telegram отчёта. Время последнего отчёта и
+счётчики хранятся в `BRIDGE_STATE_DB`, поэтому обычный рестарт не обнуляет период
+и не запускает новый 24-часовой интервал.
+
+Отчёт показывает:
+
+- жив ли процесс и подключена ли сейчас MAX-сессия;
+- сколько MAX-сообщений разобрано за период;
+- сколько новых сообщений принято из выбранных чатов и доставлено в Telegram;
+- число отфильтрованных событий, дублей и ошибок;
+- количество pending/failed записей durable outbox.
+
+В heartbeat нет текста сообщений, имён отправителей, названий и числовых ID
+MAX/Telegram. Если Telegram временно недоступен, отправка проходит обычный
+bounded retry, затем reporter повторяет попытку через 15 минут, не останавливая
+основную пересылку. Жёлтый статус означает, что MAX сейчас переподключается либо
+в outbox есть failed-записи; отсутствие отчёта дольше суток требует проверки
+alwaysdata service и его логов.
 
 ## Надёжность и локальное состояние
 
@@ -402,6 +429,11 @@ custom service работает в foreground, автоматически пер
 Telegram bot token, если они появлялись в чате или логах. Секреты загружаются
 только в ignored-файлы `.env` и `data/max-session.json`, не в Git и не в команду
 alwaysdata service.
+
+Чтобы включить heartbeat на alwaysdata, добавьте в закрытый `.env` строку
+`DAILY_REPORT_ENABLED=true` и перезапустите custom service. Первый служебный
+отчёт подтверждает доступ бота к целевому Telegram-чату; он не заменяет
+account-gated проверку реального поста выбранного MAX-канала.
 
 ## Ограничения текущей версии
 

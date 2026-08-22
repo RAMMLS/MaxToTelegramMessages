@@ -149,6 +149,7 @@ class Settings:
     state_db: Path = Path(".max-to-telegram.sqlite3")
     reconnect_max_seconds: int = 10
     telegram_max_retries: int = 5
+    daily_report_enabled: bool = False
     log_level: str = "INFO"
 
     @classmethod
@@ -224,6 +225,11 @@ class Settings:
             state_db=_expand_config_path("BRIDGE_STATE_DB", state_raw),
             reconnect_max_seconds=reconnect_max if reconnect_max is not None else 10,
             telegram_max_retries=telegram_retries if telegram_retries is not None else 5,
+            daily_report_enabled=_parse_bool(
+                "DAILY_REPORT_ENABLED",
+                source.get("DAILY_REPORT_ENABLED"),
+                default=False,
+            ),
             log_level=source.get("LOG_LEVEL", "INFO").strip().upper(),
         )
         settings.validate(purpose=purpose)
@@ -344,6 +350,7 @@ class Settings:
             "queue_size": self.queue_size,
             "reconnect_max_seconds": self.reconnect_max_seconds,
             "telegram_max_retries": self.telegram_max_retries,
+            "daily_report_enabled": self.daily_report_enabled,
             "log_level": self.log_level,
         }
 

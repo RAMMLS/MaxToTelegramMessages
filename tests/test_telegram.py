@@ -120,6 +120,23 @@ async def test_sends_message_and_returns_telegram_id() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sends_internal_health_report() -> None:
+    session = FakeSession(FakeResponse(200, {"ok": True, "result": {"message_id": 101}}))
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
+
+    assert await sender.send_text("🟢 <b>Мост работает</b>") == 101
+    assert session.requests[0][1]["json"]["text"] == "🟢 <b>Мост работает</b>"
+
+
+@pytest.mark.asyncio
+async def test_rejects_invalid_internal_health_report() -> None:
+    sender = TelegramSender(BOT_TOKEN, "42", session=FakeSession())
+
+    with pytest.raises(TelegramPermanentError, match="invalid length"):
+        await sender.send_text("")
+
+
+@pytest.mark.asyncio
 async def test_rate_limit_uses_server_retry_after() -> None:
     session = FakeSession(
         FakeResponse(

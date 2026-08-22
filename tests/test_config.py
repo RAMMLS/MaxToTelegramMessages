@@ -29,6 +29,19 @@ def test_loads_complete_environment() -> None:
     assert settings.max_chat_ids == frozenset({10, -20})
     assert settings.queue_size == 100
     assert settings.discovery_mode is False
+    assert settings.daily_report_enabled is False
+
+
+def test_enables_daily_health_report() -> None:
+    settings = Settings.from_env(complete_env(DAILY_REPORT_ENABLED="true"))
+
+    assert settings.daily_report_enabled is True
+    assert settings.safe_summary()["daily_report_enabled"] is True
+
+
+def test_rejects_ambiguous_daily_report_flag() -> None:
+    with pytest.raises(ConfigError, match="DAILY_REPORT_ENABLED"):
+        Settings.from_env(complete_env(DAILY_REPORT_ENABLED="sometimes"))
 
 
 def test_empty_allowlist_fails_closed() -> None:
