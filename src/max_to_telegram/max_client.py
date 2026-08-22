@@ -155,10 +155,27 @@ class MaxClient:
             buffered = await self._handshake(websocket, send_lock, user_agent)
             logger.info("MAX session authenticated")
             keepalive = asyncio.create_task(self._keepalive(websocket, send_lock))
+            receive: asyncio.Future[bytes | str] | None = None
             try:
                 for frame in buffered:
                     yield frame
-                async for raw in websocket:
+                iterator = websocket.__aiter__()
+                while True:
+                    receive = asyncio.ensure_future(anext(iterator))
+                    done, _ = await asyncio.wait(
+                        (receive, keepalive),
+                        return_when=asyncio.FIRST_COMPLETED,
+                    )
+                    if keepalive in done:
+                        if not receive.done():
+                            receive.cancel()
+                        await asyncio.gather(receive, return_exceptions=True)
+                        await keepalive
+                        return
+                    try:
+                        raw = receive.result()
+                    except StopAsyncIteration:
+                        break
                     frame = self._decode_raw(raw)
                     if frame.cmd == 0:
                         should_yield = await self._ack_push(websocket, send_lock, frame)
@@ -167,9 +184,13 @@ class MaxClient:
                     elif frame.cmd == 3:
                         raise self._command_error(frame)
             finally:
-                keepalive.cancel()
-                with suppress(asyncio.CancelledError):
-                    await keepalive
+                if receive is not None and not receive.done():
+                    receive.cancel()
+                if receive is not None:
+                    await asyncio.gather(receive, return_exceptions=True)
+                if not keepalive.done():
+                    keepalive.cancel()
+                await asyncio.gather(keepalive, return_exceptions=True)
 
     async def _handshake(
         self,
