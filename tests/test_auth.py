@@ -92,6 +92,15 @@ def test_rejects_oversized_session_file(tmp_path: Path) -> None:
         load_session_file(session_file)
 
 
+def test_rejects_non_utf8_session_file(tmp_path: Path) -> None:
+    session_file = tmp_path / "session.json"
+    session_file.write_bytes(b"\xff\xfe")
+    session_file.chmod(0o600)
+
+    with pytest.raises(AuthError, match="UTF-8"):
+        load_session_file(session_file)
+
+
 @pytest.mark.parametrize(
     ("document", "message"),
     [

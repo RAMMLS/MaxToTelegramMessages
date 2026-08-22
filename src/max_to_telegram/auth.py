@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import json
 import os
-import stat
 import tempfile
 import uuid
 from collections.abc import Mapping
@@ -14,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from max_to_telegram.config import Settings
+from max_to_telegram.safe_files import PrivateFileError, read_private_text
 
 
 class AuthError(ValueError):
@@ -92,22 +92,13 @@ def load_session_file(path: Path) -> MaxCredentials:
 
 def _read_session_file(path: Path) -> Any:
     try:
-        file_stat = path.lstat()
-    except OSError as exc:
-        raise AuthError(f"cannot access MAX session file: {path}") from exc
-    if stat.S_ISLNK(file_stat.st_mode):
-        raise AuthError("MAX session file must not be a symbolic link")
-    if not stat.S_ISREG(file_stat.st_mode):
-        raise AuthError("MAX session path must point to a regular file")
-    if file_stat.st_size > _MAX_SESSION_FILE_BYTES:
-        raise AuthError("MAX session file is unexpectedly large")
-    if os.name == "posix" and stat.S_IMODE(file_stat.st_mode) & 0o077:
-        raise AuthError("MAX session file permissions are too broad; run chmod 600 on it")
-
-    try:
-        raw = path.read_text(encoding="utf-8")
-    except OSError as exc:
-        raise AuthError(f"cannot read MAX session file: {path}") from exc
+        raw = read_private_text(
+            path,
+            maximum_bytes=_MAX_SESSION_FILE_BYTES,
+            label="MAX session file",
+        )
+    except PrivateFileError as exc:
+        raise AuthError(str(exc)) from exc
     try:
         document = json.loads(raw)
     except json.JSONDecodeError as exc:

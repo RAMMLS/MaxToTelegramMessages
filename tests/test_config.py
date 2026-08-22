@@ -199,6 +199,16 @@ def test_rejects_oversized_dotenv(tmp_path, monkeypatch) -> None:
         Settings.from_env()
 
 
+def test_rejects_non_utf8_dotenv(tmp_path, monkeypatch) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_bytes(b"\xff\xfe")
+    dotenv.chmod(0o600)
+    monkeypatch.chdir(tmp_path)
+
+    with pytest.raises(ConfigError, match="UTF-8"):
+        Settings.from_env()
+
+
 @pytest.mark.parametrize(
     ("name", "value", "maximum"),
     [

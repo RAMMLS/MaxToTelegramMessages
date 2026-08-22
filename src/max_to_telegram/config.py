@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import os
 import re
-import stat
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field
+from io import StringIO
 from pathlib import Path
 from types import MappingProxyType
 from typing import Literal
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv, load_dotenv
+
+from max_to_telegram.safe_files import PrivateFileError, read_private_text
 
 
 class ConfigError(ValueError):
@@ -274,13 +276,7 @@ def _load_protected_dotenv() -> None:
         return
     path = Path(raw_path)
     try:
-        file_stat = path.lstat()
-    except OSError as exc:
-        raise ConfigError("cannot inspect .env file") from exc
-    if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
-        raise ConfigError(".env must be a regular file, not a symbolic link")
-    if file_stat.st_size > _MAX_DOTENV_BYTES:
-        raise ConfigError(".env file is unexpectedly large")
-    if os.name == "posix" and stat.S_IMODE(file_stat.st_mode) & 0o077:
-        raise ConfigError(".env permissions are too broad; run chmod 600 .env")
-    load_dotenv(path, override=False)
+        raw = read_private_text(path, maximum_bytes=_MAX_DOTENV_BYTES, label=".env file")
+    except PrivateFileError as exc:
+        raise ConfigError(str(exc)) from exc
+    load_dotenv(stream=StringIO(raw), override=False)
