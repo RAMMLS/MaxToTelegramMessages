@@ -32,6 +32,8 @@
 - `.env` и session JSON читаются через проверенный descriptor с `O_NOFOLLOW`,
   inode/fstat-сверкой и жёстким пределом байтов;
 - allowlist `MAX_CHAT_IDS` обязателен и по умолчанию пуст;
+- allowlist ограничен 1000 signed-int64 ID, а MAX URL/version/locale проходят
+  ранние пределы длины и проверку управляющих символов;
 - DEBUG-логи транспортов отключены, известные секреты редактируются formatter-ом;
 - pending outbox содержит текст локально, после доставки текст очищается;
 - state/session/env файлы исключены из Git.

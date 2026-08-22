@@ -97,6 +97,13 @@ def test_rejects_out_of_range_max_chat_ids(chat_id: str) -> None:
         Settings.from_env(complete_env(MAX_CHAT_IDS=chat_id))
 
 
+def test_rejects_more_than_one_thousand_selected_chats() -> None:
+    values = ",".join(str(index) for index in range(1, 1_002))
+
+    with pytest.raises(ConfigError, match="at most 1000"):
+        Settings.from_env(complete_env(MAX_CHAT_IDS=values))
+
+
 @pytest.mark.parametrize("viewer_id", [str(2**63), "-1", "0"])
 def test_rejects_out_of_range_direct_max_viewer_id(viewer_id: str) -> None:
     with pytest.raises(ConfigError, match="MAX_VIEWER_ID"):
@@ -191,6 +198,29 @@ def test_rejects_max_endpoint_userinfo_even_with_custom_opt_in() -> None:
                 MAX_ALLOW_CUSTOM_WS_URL="true",
             )
         )
+
+
+@pytest.mark.parametrize(
+    ("overrides", "message"),
+    [
+        (
+            {
+                "MAX_WS_URL": "wss://example.test/websocket\nlog-injection",
+                "MAX_ALLOW_CUSTOM_WS_URL": "true",
+            },
+            "MAX_WS_URL",
+        ),
+        ({"MAX_APP_VERSION": "26.8.8\nprivate"}, "MAX_APP_VERSION"),
+        ({"MAX_APP_VERSION": "v" * 65}, "MAX_APP_VERSION"),
+        ({"MAX_LOCALE": "ru\tprivate"}, "MAX_LOCALE"),
+        ({"MAX_LOCALE": "r" * 33}, "MAX_LOCALE"),
+    ],
+)
+def test_rejects_unbounded_or_control_bearing_max_metadata(
+    overrides: dict[str, str], message: str
+) -> None:
+    with pytest.raises(ConfigError, match=message):
+        Settings.from_env(complete_env(**overrides))
 
 
 def test_accepts_valid_device_id() -> None:

@@ -29,6 +29,11 @@ _DEFAULT_MAX_WS_URL = "wss://api.oneme.ru/websocket"
 _DEFAULT_MAX_APP_VERSION = "26.8.8"
 _DEFAULT_MAX_LOCALE = "ru"
 _MAX_DOTENV_BYTES = 64 * 1024
+_MAX_CHAT_IDS_CHARS = 64 * 1024
+_MAX_SELECTED_CHATS = 1_000
+_MAX_WS_URL_CHARS = 2_048
+_MAX_APP_VERSION_CHARS = 64
+_MAX_LOCALE_CHARS = 32
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 _TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
@@ -82,6 +87,8 @@ def _parse_int(
 def _parse_chat_ids(raw: str | None) -> frozenset[int]:
     if raw is None or not raw.strip():
         return frozenset()
+    if len(raw) > _MAX_CHAT_IDS_CHARS or raw.count(",") >= _MAX_SELECTED_CHATS:
+        raise ConfigError(f"MAX_CHAT_IDS must contain at most {_MAX_SELECTED_CHATS} values")
     result: set[int] = set()
     for item in raw.split(","):
         value = item.strip()
@@ -97,6 +104,10 @@ def _parse_chat_ids(raw: str | None) -> frozenset[int]:
             raise ConfigError("MAX_CHAT_IDS values must fit signed int64")
         result.add(chat_id)
     return frozenset(result)
+
+
+def _has_control_characters(value: str) -> bool:
+    return any(ord(character) < 32 or ord(character) == 127 for character in value)
 
 
 @dataclass(frozen=True, slots=True)
@@ -207,7 +218,9 @@ class Settings:
         errors: list[str] = []
         if purpose in {"runtime", "max_public"}:
             parsed_ws_url = urlparse(self.max_ws_url)
-            if parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
+            if len(self.max_ws_url) > _MAX_WS_URL_CHARS or _has_control_characters(self.max_ws_url):
+                errors.append("MAX_WS_URL is too long or contains control characters")
+            elif parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
                 errors.append("MAX_WS_URL must be an absolute wss:// URL")
             elif parsed_ws_url.username is not None or parsed_ws_url.password is not None:
                 errors.append("MAX_WS_URL must not contain user information")
@@ -216,10 +229,18 @@ class Settings:
                     "MAX_WS_URL must use the pinned api.oneme.ru endpoint; "
                     "set MAX_ALLOW_CUSTOM_WS_URL=true only for reviewed protocol research"
                 )
-            if not self.max_app_version:
-                errors.append("MAX_APP_VERSION must not be empty")
-            if not self.max_locale:
-                errors.append("MAX_LOCALE must not be empty")
+            if (
+                not self.max_app_version
+                or len(self.max_app_version) > _MAX_APP_VERSION_CHARS
+                or _has_control_characters(self.max_app_version)
+            ):
+                errors.append("MAX_APP_VERSION must be 1..64 characters without controls")
+            if (
+                not self.max_locale
+                or len(self.max_locale) > _MAX_LOCALE_CHARS
+                or _has_control_characters(self.max_locale)
+            ):
+                errors.append("MAX_LOCALE must be 1..32 characters without controls")
 
         if purpose == "runtime":
             direct_auth_parts = (self.max_viewer_id is not None, self.max_auth_token is not None)
