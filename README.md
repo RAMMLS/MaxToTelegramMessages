@@ -324,6 +324,12 @@ BRIDGE_STATE_DB=/var/lib/max-to-telegram/state.sqlite3
 обновляемая сессия и outbox находятся в закрытом `StateDirectory`. Пути и
 `User=` в unit нужно адаптировать к серверу. Не запускайте мост от root.
 
+Unit не перезапускает exit code `2` (исправьте конфигурацию/credentials/state и
+запустите сервис снова), но автоматически перезапускает временный exit `75`,
+после чего durable outbox восстанавливает недоставленные уведомления. Unit
+проверен `systemd-analyze verify`; offline security exposure на systemd 252 —
+`2.8 OK`.
+
 ## Ограничения текущей версии
 
 - нет account-gated end-to-end теста без профиля MAX;
