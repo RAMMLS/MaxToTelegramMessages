@@ -49,6 +49,47 @@ def test_reports_invalid_xml_without_raising(tmp_path: Path) -> None:
     assert completed.stdout.startswith("::error title=Pytest report unavailable::")
 
 
+def test_limits_failure_annotations_to_ten(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    cases = "".join(
+        f'<testcase classname="suite" name="case_{index}"><failure message="boom" /></testcase>'
+        for index in range(12)
+    )
+    report.write_text(f"<testsuite>{cases}</testsuite>", encoding="utf-8")
+
+    completed = _run_script(report)
+    lines = completed.stdout.splitlines()
+
+    assert completed.returncode == 0
+    assert len(lines) == 10
+    assert "suite.case_9" in lines[-1]
+    assert all("suite.case_10" not in line for line in lines)
+
+
+def test_reports_collection_error_with_case_name(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text(
+        '<testsuite><testcase classname="tests.test_import" name="collection">'
+        '<error message="collection failure" /></testcase></testsuite>',
+        encoding="utf-8",
+    )
+
+    completed = _run_script(report)
+
+    assert completed.returncode == 0
+    assert "tests.test_import.collection: collection failure" in completed.stdout
+
+
+def test_reports_empty_failed_suite(tmp_path: Path) -> None:
+    report = tmp_path / "results.xml"
+    report.write_text('<testsuite><testcase name="passed" /></testsuite>', encoding="utf-8")
+
+    completed = _run_script(report)
+
+    assert completed.returncode == 0
+    assert "No failed testcase was present" in completed.stdout
+
+
 def test_main_rejects_missing_report_argument() -> None:
     completed = _run_script()
 
