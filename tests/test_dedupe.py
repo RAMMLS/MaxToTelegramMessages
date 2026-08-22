@@ -86,6 +86,7 @@ def test_empty_stats_are_zero(tmp_path):
         assert store.health().integrity_ok is True
         assert store.health().recoverable_pending == 0
         assert store.health().unrecoverable_pending == 0
+        assert store.health().invalid_progress == 0
 
 
 def test_health_distinguishes_recoverable_and_legacy_pending_rows(tmp_path):
@@ -99,6 +100,7 @@ def test_health_distinguishes_recoverable_and_legacy_pending_rows(tmp_path):
     assert health.integrity_ok is True
     assert health.recoverable_pending == 1
     assert health.unrecoverable_pending == 1
+    assert health.invalid_progress == 0
     assert "legacy-without-message" not in repr(health)
 
 
@@ -162,6 +164,40 @@ def test_invalid_partial_delivery_progress_is_rejected(tmp_path, ids):
         store.enqueue(message)
         with pytest.raises(DedupeError, match="positive integers"):
             store.record_delivery_progress(message.dedupe_key, ids)
+
+
+def test_delivery_progress_must_extend_existing_checkpoint(tmp_path):
+    message = parsed_message()
+    with DedupeStore(tmp_path / "state.db") as store:
+        store.enqueue(message)
+        store.record_delivery_progress(message.dedupe_key, [101, 102])
+
+        with pytest.raises(DedupeError, match="extend"):
+            store.record_delivery_progress(message.dedupe_key, [101])
+        with pytest.raises(DedupeError, match="extend"):
+            store.record_delivery_progress(message.dedupe_key, [999, 102, 103])
+
+        assert store.delivery_progress(message.dedupe_key) == (101, 102)
+
+
+def test_health_reports_corrupt_pending_delivery_progress(tmp_path):
+    path = tmp_path / "state.db"
+    message = parsed_message()
+    with DedupeStore(path) as store:
+        store.enqueue(message)
+        store.record_delivery_progress(message.dedupe_key, [101])
+
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            "UPDATE deliveries SET telegram_message_ids = 'not-json' WHERE dedupe_key = ?",
+            (message.dedupe_key,),
+        )
+        connection.commit()
+
+    with DedupeStore(path) as reopened:
+        assert reopened.health().invalid_progress == 1
+        with pytest.raises(DedupeError, match="progress is corrupt"):
+            reopened.delivery_progress(message.dedupe_key)
 
 
 def test_different_edit_revision_is_a_second_outbox_item(tmp_path):

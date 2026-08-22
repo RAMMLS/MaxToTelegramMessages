@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sqlite3
 from collections.abc import AsyncIterator
+from contextlib import closing
 from datetime import datetime, timezone
 
 import pytest
@@ -236,6 +238,30 @@ async def test_unrecoverable_legacy_pending_item_fails_startup(tmp_path) -> None
     runtime, sender, _ = bridge(tmp_path, [], store=store)
     try:
         with pytest.raises(DedupeError, match="without recoverable message data"):
+            await runtime.run()
+        assert sender.messages == []
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_invalid_chunk_progress_fails_before_delivery(tmp_path) -> None:
+    path = tmp_path / "state.db"
+    pending = parsed_message()
+    with DedupeStore(path) as prepared:
+        prepared.enqueue(pending)
+        prepared.record_delivery_progress(pending.dedupe_key, [100])
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute(
+            "UPDATE deliveries SET telegram_message_ids = 'broken' WHERE dedupe_key = ?",
+            (pending.dedupe_key,),
+        )
+        connection.commit()
+
+    store = DedupeStore(path).open()
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        with pytest.raises(DedupeError, match="invalid Telegram chunk progress"):
             await runtime.run()
         assert sender.messages == []
     finally:

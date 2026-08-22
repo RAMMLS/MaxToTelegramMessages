@@ -61,6 +61,7 @@ class OutboxHealth:
     integrity_ok: bool
     recoverable_pending: int
     unrecoverable_pending: int
+    invalid_progress: int
 
 
 class DedupeStore:
@@ -254,11 +255,7 @@ class DedupeStore:
             raise DedupeError("delivery progress record is not pending")
         if row[1] is None:
             return ()
-        try:
-            values = json.loads(str(row[1]))
-        except json.JSONDecodeError as exc:
-            raise DedupeError("delivery progress is corrupt") from exc
-        return _validated_telegram_ids(values, allow_empty=True)
+        return _decode_telegram_ids(str(row[1]))
 
     def record_delivery_progress(
         self,
@@ -273,6 +270,16 @@ class DedupeStore:
         validated = _validated_telegram_ids(telegram_message_ids, allow_empty=False)
         connection = self._require_connection()
         try:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT state, telegram_message_ids FROM deliveries WHERE dedupe_key = ?",
+                (key,),
+            ).fetchone()
+            if row is None or str(row[0]) != "pending":
+                raise DedupeError("delivery progress record was not pending")
+            previous = () if row[1] is None else _decode_telegram_ids(str(row[1]))
+            if len(validated) < len(previous) or validated[: len(previous)] != previous:
+                raise DedupeError("delivery progress must extend the existing checkpoint")
             cursor = connection.execute(
                 """
                 UPDATE deliveries
@@ -281,10 +288,15 @@ class DedupeStore:
                 """,
                 (_utc_iso(now), json.dumps(list(validated)), key),
             )
+            if cursor.rowcount != 1:
+                raise DedupeError("delivery progress record was not pending")
+            connection.execute("COMMIT")
+        except DedupeError:
+            _rollback(connection)
+            raise
         except sqlite3.Error as exc:
+            _rollback(connection)
             raise DedupeError("could not checkpoint delivery progress") from exc
-        if cursor.rowcount != 1:
-            raise DedupeError("delivery progress record was not pending")
 
     def pending_messages(self, *, limit: int = 10_000) -> tuple[ParsedMessage, ...]:
         """Return recoverable pending messages in durable insertion order."""
@@ -368,15 +380,28 @@ class DedupeStore:
                 FROM deliveries
                 """
             ).fetchone()
+            progress_rows = connection.execute(
+                """
+                SELECT telegram_message_ids FROM deliveries
+                WHERE state = 'pending' AND telegram_message_ids IS NOT NULL
+                """
+            ).fetchall()
         except sqlite3.Error as exc:
             raise DedupeError("could not validate the delivery state database") from exc
         if row is None:
             raise DedupeError("delivery health query returned no result")
         integrity_ok = len(integrity_rows) == 1 and integrity_rows[0] == ("ok",)
+        invalid_progress = 0
+        for (raw_progress,) in progress_rows:
+            try:
+                _decode_telegram_ids(str(raw_progress))
+            except DedupeError:
+                invalid_progress += 1
         return OutboxHealth(
             integrity_ok=integrity_ok,
             recoverable_pending=int(row[0] or 0),
             unrecoverable_pending=int(row[1] or 0),
+            invalid_progress=invalid_progress,
         )
 
     def mark_delivered(
@@ -566,6 +591,17 @@ def _validated_telegram_ids(value: object, *, allow_empty: bool) -> tuple[int, .
     if len(ids) > 10_000:
         raise DedupeError("telegram message ID progress is unexpectedly large")
     return ids
+
+
+def _decode_telegram_ids(payload: str) -> tuple[int, ...]:
+    try:
+        values = json.loads(payload)
+    except json.JSONDecodeError as exc:
+        raise DedupeError("delivery progress is corrupt") from exc
+    try:
+        return _validated_telegram_ids(values, allow_empty=True)
+    except DedupeError as exc:
+        raise DedupeError("delivery progress is corrupt") from exc
 
 
 def _utc_iso(value: datetime | None) -> str:

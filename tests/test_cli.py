@@ -399,4 +399,5 @@ def test_inspect_state_returns_only_counters(tmp_path) -> None:
         "integrity_ok": True,
         "recoverable_pending": 0,
         "unrecoverable_pending": 0,
+        "invalid_progress": 0,
     }
