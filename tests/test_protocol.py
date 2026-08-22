@@ -9,6 +9,8 @@ import pytest
 from max_to_telegram.protocol import (
     HEADER_SIZE,
     MAX_DECOMPRESSED_BYTES,
+    MAX_MSGPACK_CONTAINER_ITEMS,
+    MAX_MSGPACK_STRING_BYTES,
     Frame,
     FrameCodec,
     ProtocolError,
@@ -66,6 +68,30 @@ def test_preserves_unknown_messagepack_extension(codec: FrameCodec) -> None:
     decoded = codec.decode(raw)
 
     assert decoded.payload == msgpack.ExtType(9, b"opaque")
+
+
+def test_rejects_messagepack_array_with_excessive_object_count(codec: FrameCodec) -> None:
+    packed = msgpack.packb(list(range(MAX_MSGPACK_CONTAINER_ITEMS + 1)))
+    raw = struct.pack(">BBhhB", 10, 0, 1, 128, 0) + len(packed).to_bytes(3, "big") + packed
+
+    with pytest.raises(ProtocolError, match="MessagePack"):
+        codec.decode(raw)
+
+
+def test_rejects_oversized_messagepack_string(codec: FrameCodec) -> None:
+    packed = msgpack.packb("x" * (MAX_MSGPACK_STRING_BYTES + 1))
+    raw = struct.pack(">BBhhB", 10, 0, 1, 128, 0) + len(packed).to_bytes(3, "big") + packed
+
+    with pytest.raises(ProtocolError, match="MessagePack"):
+        codec.decode(raw)
+
+
+def test_rejects_oversized_int64_extension(codec: FrameCodec) -> None:
+    packed = msgpack.packb(msgpack.ExtType(1, b"x" * 33))
+    raw = struct.pack(">BBhhB", 10, 0, 1, 128, 0) + len(packed).to_bytes(3, "big") + packed
+
+    with pytest.raises(ProtocolError, match="MessagePack"):
+        codec.decode(raw)
 
 
 @pytest.mark.parametrize("raw", [b"", b"\x0a", b"\x0a" * (HEADER_SIZE - 1)])

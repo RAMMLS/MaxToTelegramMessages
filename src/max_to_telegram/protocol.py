@@ -15,6 +15,10 @@ HEADER_SIZE = 10
 COMPRESSION_THRESHOLD = 32
 MAX_FRAME_BYTES = 16 * 1024 * 1024
 MAX_DECOMPRESSED_BYTES = 64 * 1024 * 1024
+MAX_MSGPACK_STRING_BYTES = 8 * 1024 * 1024
+MAX_MSGPACK_BINARY_BYTES = 16 * 1024 * 1024
+MAX_MSGPACK_CONTAINER_ITEMS = 100_000
+MAX_MSGPACK_EXTENSION_BYTES = 4 * 1024 * 1024
 
 _FIXED_HEADER = struct.Struct(">BBhhB")
 
@@ -110,6 +114,11 @@ class FrameCodec:
                     raw=False,
                     strict_map_key=False,
                     ext_hook=_decode_extension,
+                    max_str_len=MAX_MSGPACK_STRING_BYTES,
+                    max_bin_len=MAX_MSGPACK_BINARY_BYTES,
+                    max_array_len=MAX_MSGPACK_CONTAINER_ITEMS,
+                    max_map_len=MAX_MSGPACK_CONTAINER_ITEMS,
+                    max_ext_len=MAX_MSGPACK_EXTENSION_BYTES,
                 )
             except (msgpack.UnpackException, ValueError) as exc:
                 raise ProtocolError("cannot decode MessagePack payload") from exc
@@ -138,6 +147,8 @@ class FrameCodec:
 def _decode_extension(code: int, data: bytes) -> Any:
     if code != 1:
         return msgpack.ExtType(code, data)
+    if len(data) > 32:
+        raise ProtocolError("int64 MessagePack extension is unexpectedly large")
     try:
         value = msgpack.unpackb(data, raw=False, strict_map_key=False)
     except (msgpack.UnpackException, ValueError) as exc:
