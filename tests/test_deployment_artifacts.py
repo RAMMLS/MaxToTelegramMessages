@@ -47,3 +47,12 @@ def test_gitignore_covers_documented_state_file_variants() -> None:
         "*.db.lock",
     ):
         assert pattern in gitignore
+
+
+def test_ci_has_timeout_and_non_echoing_secret_guard() -> None:
+    workflow = (PROJECT_ROOT / ".github/workflows/ci.yml").read_text(encoding="utf-8")
+
+    assert "timeout-minutes: 15" in workflow
+    assert "git grep -q -E" in workflow
+    assert "git ls-files --error-unmatch .env" in workflow
+    assert "git grep -n" not in workflow
