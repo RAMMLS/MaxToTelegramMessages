@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from types import MappingProxyType
+from typing import Literal
 from urllib.parse import urlparse
 
 from dotenv import find_dotenv, load_dotenv
@@ -25,6 +26,7 @@ _DEFAULT_MAX_WS_URL = "wss://api.oneme.ru/websocket"
 _DEFAULT_MAX_APP_VERSION = "26.8.8"
 _DEFAULT_MAX_LOCALE = "ru"
 _MAX_DOTENV_BYTES = 64 * 1024
+ValidationPurpose = Literal["runtime", "telegram", "telegram_discovery", "state"]
 
 
 def _parse_bool(name: str, raw: str | None, *, default: bool = False) -> bool:
@@ -105,6 +107,7 @@ class Settings:
         env: Mapping[str, str] | None = None,
         *,
         load_dotenv_file: bool = True,
+        purpose: ValidationPurpose = "runtime",
     ) -> Settings:
         """Build settings from a mapping or the process environment."""
 
@@ -155,42 +158,53 @@ class Settings:
             telegram_max_retries=telegram_retries if telegram_retries is not None else 5,
             log_level=source.get("LOG_LEVEL", "INFO").strip().upper(),
         )
-        settings.validate()
+        settings.validate(purpose=purpose)
         return settings
 
-    def validate(self) -> None:
+    def validate(self, *, purpose: ValidationPurpose = "runtime") -> None:
         """Reject incomplete settings before any network connection is opened."""
 
         errors: list[str] = []
-        parsed_ws_url = urlparse(self.max_ws_url)
-        if parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
-            errors.append("MAX_WS_URL must be an absolute wss:// URL")
-        if not self.max_app_version:
-            errors.append("MAX_APP_VERSION must not be empty")
-        if not self.max_locale:
-            errors.append("MAX_LOCALE must not be empty")
+        if purpose == "runtime":
+            parsed_ws_url = urlparse(self.max_ws_url)
+            if parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
+                errors.append("MAX_WS_URL must be an absolute wss:// URL")
+            if not self.max_app_version:
+                errors.append("MAX_APP_VERSION must not be empty")
+            if not self.max_locale:
+                errors.append("MAX_LOCALE must not be empty")
 
-        direct_auth_parts = (self.max_viewer_id is not None, self.max_auth_token is not None)
-        if any(direct_auth_parts) and not all(direct_auth_parts):
-            errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
-        if not all(direct_auth_parts) and self.max_session_file is None:
-            errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
-        if self.max_device_id:
-            try:
-                uuid.UUID(self.max_device_id)
-            except ValueError:
-                errors.append("MAX_DEVICE_ID must be a UUID")
+            direct_auth_parts = (self.max_viewer_id is not None, self.max_auth_token is not None)
+            if any(direct_auth_parts) and not all(direct_auth_parts):
+                errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
+            if not all(direct_auth_parts) and self.max_session_file is None:
+                errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
+            if self.max_device_id:
+                try:
+                    uuid.UUID(self.max_device_id)
+                except ValueError:
+                    errors.append("MAX_DEVICE_ID must be a UUID")
 
-        if not self.discovery_mode:
-            if not self.max_chat_ids:
-                errors.append(
-                    "MAX_CHAT_IDS must contain at least one selected chat; "
-                    "use MAX_DISCOVERY_MODE=true to discover IDs"
-                )
+            if not self.discovery_mode:
+                if not self.max_chat_ids:
+                    errors.append(
+                        "MAX_CHAT_IDS must contain at least one selected chat; "
+                        "use MAX_DISCOVERY_MODE=true to discover IDs"
+                    )
+                if not self.telegram_bot_token:
+                    errors.append("TELEGRAM_BOT_TOKEN is required outside discovery mode")
+                if not self.telegram_chat_id:
+                    errors.append("TELEGRAM_CHAT_ID is required outside discovery mode")
+        elif purpose == "telegram":
             if not self.telegram_bot_token:
-                errors.append("TELEGRAM_BOT_TOKEN is required outside discovery mode")
+                errors.append("TELEGRAM_BOT_TOKEN is required")
             if not self.telegram_chat_id:
-                errors.append("TELEGRAM_CHAT_ID is required outside discovery mode")
+                errors.append("TELEGRAM_CHAT_ID is required")
+        elif purpose == "telegram_discovery":
+            if not self.telegram_bot_token:
+                errors.append("TELEGRAM_BOT_TOKEN is required")
+        elif purpose != "state":
+            errors.append("unknown configuration validation purpose")
 
         if self.log_level not in _LOG_LEVELS:
             errors.append(f"LOG_LEVEL must be one of: {', '.join(sorted(_LOG_LEVELS))}")

@@ -39,6 +39,15 @@ class TelegramValidation:
     chat_title: str
 
 
+@dataclass(frozen=True, slots=True)
+class TelegramDiscoveredChat:
+    """Content-free destination metadata found in recent bot updates."""
+
+    chat_id: int
+    chat_type: str
+    chat_title: str
+
+
 class ResponseLike(Protocol):
     status: int
 
@@ -63,12 +72,13 @@ class TelegramSender:
     session: SessionLike | aiohttp.ClientSession | None = field(default=None, repr=False)
     sleep: Callable[[float], Awaitable[None]] = field(default=asyncio.sleep, repr=False)
     request_timeout: float = 20.0
+    allow_missing_chat_id: bool = field(default=False, repr=False)
     _owns_session: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
         if not self.bot_token or any(character.isspace() for character in self.bot_token):
             raise TelegramPermanentError("Telegram bot token is empty or malformed")
-        if not self.chat_id:
+        if not self.chat_id and not self.allow_missing_chat_id:
             raise TelegramPermanentError("Telegram chat ID is empty")
         if self.max_retries < 0:
             raise TelegramPermanentError("Telegram retry count must not be negative")
@@ -98,6 +108,37 @@ class TelegramSender:
             chat_type=chat["type"],
             chat_title=title,
         )
+
+    async def discover_chats(self) -> tuple[TelegramDiscoveredChat, ...]:
+        """Return unique chat metadata from recent updates without exposing content."""
+
+        document = await self._call(
+            "getUpdates",
+            {
+                "limit": 100,
+                "timeout": 0,
+            },
+        )
+        updates = document.get("result")
+        if not isinstance(updates, list):
+            raise TelegramPermanentError("Telegram getUpdates response has no update list")
+        discovered: dict[int, TelegramDiscoveredChat] = {}
+        for update in updates:
+            chat = _update_chat(update)
+            if chat is None:
+                continue
+            chat_id = chat.get("id")
+            chat_type = chat.get("type")
+            if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+                continue
+            if not isinstance(chat_type, str) or not chat_type.strip():
+                continue
+            discovered[chat_id] = TelegramDiscoveredChat(
+                chat_id=chat_id,
+                chat_type=chat_type.strip()[:64],
+                chat_title=_chat_title(chat),
+            )
+        return tuple(discovered.values())
 
     async def close(self) -> None:
         if self.session is not None and self._owns_session:
@@ -263,3 +304,19 @@ def _chat_title(chat: dict[str, Any]) -> str:
         value.strip() for value in names if isinstance(value, str) and value.strip()
     )
     return rendered[:256] or "(без названия)"
+
+
+def _update_chat(update: Any) -> dict[str, Any] | None:
+    if not isinstance(update, dict):
+        return None
+    for key in (
+        "message",
+        "edited_message",
+        "channel_post",
+        "edited_channel_post",
+        "my_chat_member",
+    ):
+        event = update.get(key)
+        if isinstance(event, dict) and isinstance(event.get("chat"), dict):
+            return cast(dict[str, Any], event["chat"])
+    return None

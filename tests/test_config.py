@@ -47,6 +47,28 @@ def test_discovery_mode_allows_empty_allowlist_and_no_telegram() -> None:
     assert settings.telegram_bot_token is None
 
 
+def test_telegram_discovery_purpose_requires_only_bot_token() -> None:
+    settings = Settings.from_env(
+        {"TELEGRAM_BOT_TOKEN": "telegram-secret"}, purpose="telegram_discovery"
+    )
+
+    assert settings.telegram_bot_token == "telegram-secret"
+    assert settings.telegram_chat_id is None
+    assert settings.max_auth_token is None
+
+
+def test_telegram_validation_purpose_requires_destination() -> None:
+    with pytest.raises(ConfigError, match="TELEGRAM_CHAT_ID"):
+        Settings.from_env({"TELEGRAM_BOT_TOKEN": "telegram-secret"}, purpose="telegram")
+
+
+def test_state_inspection_purpose_needs_no_credentials() -> None:
+    settings = Settings.from_env({}, purpose="state")
+
+    assert settings.max_auth_token is None
+    assert settings.telegram_bot_token is None
+
+
 @pytest.mark.parametrize("chat_ids", ["1,abc", "0", "1, 2, nope"])
 def test_rejects_invalid_chat_ids(chat_ids: str) -> None:
     with pytest.raises(ConfigError, match="MAX_CHAT_IDS"):

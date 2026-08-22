@@ -228,11 +228,7 @@ def test_version_does_not_require_configuration(capsys) -> None:
 
 
 def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
-    max_token = "m" * 32
     telegram_token = "telegram-secret-token-value"
-    monkeypatch.setenv("MAX_VIEWER_ID", "123")
-    monkeypatch.setenv("MAX_AUTH_TOKEN", max_token)
-    monkeypatch.setenv("MAX_CHAT_IDS", "42")
     monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
     monkeypatch.setenv("TELEGRAM_CHAT_ID", "99")
     monkeypatch.chdir("/")
@@ -250,7 +246,28 @@ def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
     assert '"bot_username": "bridge_bot"' in captured.out
     assert telegram_token not in captured.out + captured.err
-    assert max_token not in captured.out + captured.err
+
+
+def test_discovers_telegram_chats_without_max_configuration(monkeypatch, capsys) -> None:
+    telegram_token = "telegram-secret-token-value"
+    for key in ("MAX_VIEWER_ID", "MAX_AUTH_TOKEN", "MAX_SESSION_FILE", "TELEGRAM_CHAT_ID"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
+    monkeypatch.chdir("/")
+
+    async def fake_discovery(_settings):
+        return (
+            {"chat_id": 42, "chat_type": "private", "chat_title": "Selected"},
+            {"chat_id": -100, "chat_type": "group", "chat_title": "Team"},
+        )
+
+    monkeypatch.setattr("max_to_telegram.cli.discover_telegram_chats", fake_discovery)
+
+    assert main(["--discover-telegram-chats"]) == 0
+    captured = capsys.readouterr()
+    assert '"chat_id": 42' in captured.out
+    assert '"chat_id": -100' in captured.out
+    assert telegram_token not in captured.out + captured.err
 
 
 def test_inspect_state_returns_only_counters(tmp_path) -> None:
