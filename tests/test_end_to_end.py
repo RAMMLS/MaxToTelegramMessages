@@ -15,6 +15,8 @@ from max_to_telegram.parser import ChatPolicy, MessageParser
 from max_to_telegram.protocol import Frame, FrameCodec
 from max_to_telegram.telegram import TelegramSender
 
+BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+
 
 class FakeWebSocket:
     def __init__(self, incoming: list[bytes]) -> None:
@@ -127,7 +129,7 @@ async def test_binary_max_pipeline_forwards_only_allowlisted_chat(tmp_path) -> N
             "MAX_VIEWER_ID": "123",
             "MAX_AUTH_TOKEN": "max-test-token-1234567890123456",
             "MAX_CHAT_IDS": "42",
-            "TELEGRAM_BOT_TOKEN": "telegram-test-token-1234567890",
+            "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
             "TELEGRAM_CHAT_ID": "-100123",
             "BRIDGE_STATE_DB": str(tmp_path / "state.db"),
         }
@@ -141,7 +143,7 @@ async def test_binary_max_pipeline_forwards_only_allowlisted_chat(tmp_path) -> N
     )
     telegram_session = FakeTelegramSession()
     sender = TelegramSender(
-        "telegram-test-token-1234567890",
+        BOT_TOKEN,
         "-100123",
         session=telegram_session,
     )
