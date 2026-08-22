@@ -315,6 +315,36 @@ async def test_updates_refreshed_token_in_memory() -> None:
     assert client.credentials.token == "b" * 32
 
 
+@pytest.mark.asyncio
+async def test_reports_refreshed_token_with_stable_device_id() -> None:
+    codec = FrameCodec()
+    websocket = FakeWebSocket(
+        [
+            encoded(codec, Frame(cmd=1, seq=0, opcode=OPCODE_INIT, payload={})),
+            encoded(
+                codec,
+                Frame(
+                    cmd=1,
+                    seq=1,
+                    opcode=OPCODE_LOGIN,
+                    payload={"profile": {"contact": {"id": 123}}, "token": "c" * 32},
+                ),
+            ),
+        ]
+    )
+    updates = []
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        connector=FakeConnector(websocket),
+        credentials_updated=updates.append,
+    )
+
+    assert [frame async for frame in client._connected_events()] == []
+    assert updates[0].credentials.token == "c" * 32
+    assert updates[0].device_id == "123e4567-e89b-12d3-a456-426614174000"
+
+
 def test_reconnect_delay_is_capped_and_jittered() -> None:
     client = MaxClient(
         settings(),

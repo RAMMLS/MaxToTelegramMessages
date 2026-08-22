@@ -13,7 +13,7 @@ from typing import Any, Protocol
 from websockets.asyncio.client import connect
 from websockets.exceptions import WebSocketException
 
-from max_to_telegram.auth import AuthError, MaxCredentials
+from max_to_telegram.auth import AuthError, LocalMaxSession, MaxCredentials
 from max_to_telegram.config import Settings
 from max_to_telegram.protocol import Frame, FrameCodec, ProtocolError
 
@@ -55,6 +55,7 @@ class WebSocketLike(Protocol):
 Connector = Callable[..., AbstractAsyncContextManager[WebSocketLike]]
 Sleep = Callable[[float], Awaitable[None]]
 MessageHook = Callable[[Frame], Awaitable[None]]
+CredentialsUpdated = Callable[[LocalMaxSession], None]
 
 
 class MaxClient:
@@ -74,6 +75,8 @@ class MaxClient:
         sleep: Sleep = asyncio.sleep,
         random_uniform: Callable[[float, float], float] = random.uniform,
         before_message_ack: MessageHook | None = None,
+        credentials_updated: CredentialsUpdated | None = None,
+        device_id: str | None = None,
         command_timeout: float = 35.0,
         keepalive_interval: float = 30.0,
     ) -> None:
@@ -84,9 +87,10 @@ class MaxClient:
         self.sleep = sleep
         self.random_uniform = random_uniform
         self.before_message_ack = before_message_ack
+        self.credentials_updated = credentials_updated
         self.command_timeout = command_timeout
         self.keepalive_interval = keepalive_interval
-        self.device_id = settings.max_device_id or str(uuid.uuid4())
+        self.device_id = device_id or settings.max_device_id or str(uuid.uuid4())
         self._stop_event = asyncio.Event()
         self._next_seq = 0
 
@@ -352,7 +356,10 @@ class MaxClient:
 
         refreshed = frame.payload.get("token")
         if isinstance(refreshed, str) and refreshed != self.credentials.token:
-            self.credentials = MaxCredentials(self.credentials.viewer_id, refreshed)
+            updated = MaxCredentials(self.credentials.viewer_id, refreshed)
+            if self.credentials_updated is not None:
+                self.credentials_updated(LocalMaxSession(updated, self.device_id))
+            self.credentials = updated
 
     @staticmethod
     def _command_error(frame: Frame) -> MaxCommandError:

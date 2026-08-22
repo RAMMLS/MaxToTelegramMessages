@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
@@ -96,6 +97,29 @@ def test_builds_discovery_runtime_without_telegram(tmp_path) -> None:
 
     assert bundle.store is None
     assert bundle.bridge.discovery_mode is True
+
+
+def test_file_session_gets_stable_device_and_refresh_callback(tmp_path) -> None:
+    session_file = tmp_path / ".max-session.json"
+    session_file.write_text(
+        json.dumps({"viewerId": 123, "token": "m" * 32}),
+        encoding="utf-8",
+    )
+    session_file.chmod(0o600)
+    settings = Settings.from_env(
+        {
+            "MAX_SESSION_FILE": str(session_file),
+            "MAX_DISCOVERY_MODE": "true",
+        }
+    )
+
+    bundle = build_runtime(settings)
+    saved = json.loads(session_file.read_text(encoding="utf-8"))
+
+    assert saved["viewerId"] == 123
+    assert saved["token"] == "m" * 32
+    assert saved["deviceId"] == bundle.bridge.source.device_id
+    assert bundle.bridge.source.credentials_updated is not None
 
 
 @pytest.mark.asyncio

@@ -11,7 +11,12 @@ import sys
 from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 
-from max_to_telegram.auth import AuthError, load_credentials
+from max_to_telegram.auth import (
+    AuthError,
+    LocalMaxSession,
+    load_local_session,
+    save_session_file,
+)
 from max_to_telegram.bridge import Bridge
 from max_to_telegram.config import ConfigError, Settings
 from max_to_telegram.dedupe import DedupeError, DedupeStore
@@ -30,9 +35,21 @@ class RuntimeBundle:
     store: DedupeStore | None
 
 
-def build_runtime(settings: Settings) -> RuntimeBundle:
-    credentials = load_credentials(settings)
-    source = MaxClient(settings, credentials)
+def build_runtime(
+    settings: Settings,
+    local_session: LocalMaxSession | None = None,
+) -> RuntimeBundle:
+    loaded = local_session or load_local_session(settings)
+    credentials = loaded.credentials
+    source = MaxClient(settings, credentials, device_id=loaded.device_id)
+    if settings.max_session_file is not None:
+        save_session_file(
+            settings.max_session_file,
+            LocalMaxSession(credentials, source.device_id),
+        )
+        source.credentials_updated = lambda updated: save_session_file(
+            settings.max_session_file, updated
+        )
     parser = MessageParser(viewer_id=credentials.viewer_id)
     policy = ChatPolicy(settings.max_chat_ids)
 
@@ -165,7 +182,8 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         settings = Settings.from_env()
-        credentials = load_credentials(settings)
+        local_session = load_local_session(settings)
+        credentials = local_session.credentials
         configure_logging(
             settings.log_level,
             secrets=(credentials.token, settings.telegram_bot_token or ""),
@@ -181,7 +199,7 @@ def main(argv: list[str] | None = None) -> int:
             return 0
 
         logger.info("Starting MAX-to-Telegram bridge: %s", settings.safe_summary())
-        bundle = build_runtime(settings)
+        bundle = build_runtime(settings, local_session)
         return asyncio.run(run_runtime(bundle))
     except KeyboardInterrupt:
         return 130
