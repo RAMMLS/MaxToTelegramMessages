@@ -31,6 +31,7 @@
 - Telegram `sendMessage`, безопасный HTML, разбиение длинного текста;
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
+- до 20 секунд graceful drain после сигнала с forced cancel и durable recovery;
 - строгие типы ID/time и границы размера attachment metadata из private protocol;
 - bounded queue/retry/reconnect settings и безопасный backoff при долгом outage;
 - permanent MAX command errors останавливают процесс без retry storm;
@@ -368,6 +369,11 @@ Unit не перезапускает exit code `2` (исправьте конф�
 после чего durable outbox восстанавливает недоставленные уведомления. Unit
 проверен `systemd-analyze verify`; offline security exposure на systemd 252 —
 `2.8 OK`.
+
+SIGINT/SIGTERM сначала останавливает MAX listener и даёт worker до 20 секунд на
+завершение уже поставленных в очередь отправок. Затем задача отменяется; все не
+зафиксированные как delivered записи остаются pending и поднимаются при следующем
+старте. Второй сигнал отменяет grace period немедленно.
 
 ## Ограничения текущей версии
 

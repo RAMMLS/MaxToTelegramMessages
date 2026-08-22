@@ -91,20 +91,29 @@ def build_runtime(
     return RuntimeBundle(bridge=bridge, store=store)
 
 
-async def run_runtime(bundle: RuntimeBundle, *, install_signal_handlers: bool = True) -> int:
+async def run_runtime(
+    bundle: RuntimeBundle,
+    *,
+    install_signal_handlers: bool = True,
+    shutdown_timeout: float = 20.0,
+) -> int:
+    if shutdown_timeout <= 0:
+        raise ValueError("shutdown timeout must be positive")
     shutdown_requested = False
     runtime_task = asyncio.create_task(bundle.bridge.run(), name="max-to-telegram")
     loop = asyncio.get_running_loop()
     installed_signals: list[signal.Signals] = []
+    forced_cancel: asyncio.TimerHandle | None = None
 
     def request_shutdown() -> None:
-        nonlocal shutdown_requested
+        nonlocal forced_cancel, shutdown_requested
         if shutdown_requested:
+            runtime_task.cancel()
             return
         shutdown_requested = True
-        logger.info("Shutdown requested")
+        logger.info("Shutdown requested; allowing %.1fs to drain pending work", shutdown_timeout)
         bundle.bridge.stop()
-        runtime_task.cancel()
+        forced_cancel = loop.call_later(shutdown_timeout, runtime_task.cancel)
 
     if install_signal_handlers:
         for signum in (signal.SIGINT, signal.SIGTERM):
@@ -122,6 +131,8 @@ async def run_runtime(bundle: RuntimeBundle, *, install_signal_handlers: bool = 
             return 0
         raise
     finally:
+        if forced_cancel is not None:
+            forced_cancel.cancel()
         for signum in installed_signals:
             loop.remove_signal_handler(signum)
         bundle.bridge.stop()
