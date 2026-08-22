@@ -55,9 +55,7 @@ class DedupeStore:
     def open(self) -> DedupeStore:
         if self._connection is not None:
             return self
-        if self.path.exists() and not self.path.is_file():
-            raise DedupeError("state database path must be a regular file")
-        self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._prepare_state_file()
         self._acquire_process_lock()
         connection: sqlite3.Connection | None = None
         try:
@@ -84,11 +82,13 @@ class DedupeStore:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS deliveries_updated_at ON deliveries(updated_at)"
             )
-        except sqlite3.Error as exc:
+        except BaseException as exc:
             if connection is not None:
                 connection.close()
             self._release_process_lock()
-            raise DedupeError("could not initialize the delivery state database") from exc
+            if isinstance(exc, sqlite3.Error):
+                raise DedupeError("could not initialize the delivery state database") from exc
+            raise
         self._connection = connection
         with suppress(OSError):
             os.chmod(self.path, 0o600)
@@ -353,6 +353,31 @@ class DedupeStore:
         if self._connection is None:
             raise DedupeError("delivery state database is not open")
         return self._connection
+
+    def _prepare_state_file(self) -> None:
+        try:
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            if self.path.exists() or self.path.is_symlink():
+                file_stat = self.path.lstat()
+                if stat.S_ISLNK(file_stat.st_mode) or not stat.S_ISREG(file_stat.st_mode):
+                    raise DedupeError("state database path must be a regular file, not a symlink")
+                if os.name == "posix" and stat.S_IMODE(file_stat.st_mode) & 0o077:
+                    raise DedupeError(
+                        "state database permissions are too broad; run chmod 600 on it"
+                    )
+                return
+
+            flags = os.O_CREAT | os.O_EXCL | os.O_RDWR
+            if hasattr(os, "O_CLOEXEC"):
+                flags |= os.O_CLOEXEC
+            if hasattr(os, "O_NOFOLLOW"):
+                flags |= os.O_NOFOLLOW
+            descriptor = os.open(self.path, flags, 0o600)
+            os.close(descriptor)
+        except DedupeError:
+            raise
+        except OSError as exc:
+            raise DedupeError("could not prepare the delivery state database") from exc
 
     def _acquire_process_lock(self) -> None:
         if fcntl is None or self._lock_descriptor is not None:
