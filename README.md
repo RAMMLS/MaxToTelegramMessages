@@ -268,21 +268,35 @@ RUN_LIVE_MAX_RESEARCH=1 pytest -m live tests/test_live_handshake.py -v
 `/etc/max-to-telegram/bridge.env`:
 
 ```bash
+sudo useradd --system --home-dir /nonexistent --shell /usr/sbin/nologin maxbridge
 sudo install -d -m 700 /etc/max-to-telegram
 sudo install -m 600 .env /etc/max-to-telegram/bridge.env
+sudo install -d -o maxbridge -g maxbridge -m 700 /var/lib/max-to-telegram
+# Только при файловом импорте MAX-сессии:
+sudo install -o maxbridge -g maxbridge -m 600 .max-session.json \
+  /var/lib/max-to-telegram/session.json
 sudo install -m 644 deploy/max-to-telegram.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now max-to-telegram
 sudo journalctl -u max-to-telegram -f
 ```
 
-Пути и `User=` в unit нужно адаптировать к серверу. Не запускайте мост от root.
+В `/etc/max-to-telegram/bridge.env` используйте абсолютные writable-пути:
+
+```dotenv
+MAX_SESSION_FILE=/var/lib/max-to-telegram/session.json
+BRIDGE_STATE_DB=/var/lib/max-to-telegram/state.sqlite3
+```
+
+Если session token задан напрямую через `MAX_AUTH_TOKEN`, строка
+`MAX_SESSION_FILE` не нужна. Код в `/opt/max-to-telegram` остаётся read-only;
+обновляемая сессия и outbox находятся в закрытом `StateDirectory`. Пути и
+`User=` в unit нужно адаптировать к серверу. Не запускайте мост от root.
 
 ## Ограничения текущей версии
 
 - нет account-gated end-to-end теста без профиля MAX;
 - реальные поля разных типов MAX-чатов и вложений требуют capture;
-- автоматическое обновление импортированного session token пока не сохраняется;
 - изменения приватного web protocol могут потребовать обновления codec/client;
 - пересылается текст и ярлык вложения, но не бинарный файл;
 - одна конфигурация отправляет все выбранные MAX-чаты в один Telegram-чат.
