@@ -5,8 +5,10 @@ from dataclasses import dataclass
 
 import pytest
 
-from max_to_telegram.cli import RuntimeBundle, build_runtime, main, run_runtime
+from max_to_telegram.bridge import BridgeStats
+from max_to_telegram.cli import RuntimeBundle, build_runtime, inspect_state, main, run_runtime
 from max_to_telegram.config import Settings
+from max_to_telegram.dedupe import OutboxStats
 
 
 class FakeBridge:
@@ -20,6 +22,7 @@ class FakeBridge:
         self.ran = False
         self.stopped = False
         self.closed = False
+        self.stats = BridgeStats()
 
     async def run(self) -> None:
         self.ran = True
@@ -46,6 +49,9 @@ class FakeStore:
 
     def close(self) -> None:
         self.closed = True
+
+    def stats(self) -> OutboxStats:
+        return OutboxStats(pending=0, pending_failed=0, delivered=0, total=0)
 
 
 @pytest.mark.asyncio
@@ -215,3 +221,21 @@ def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
     assert '"bot_username": "bridge_bot"' in captured.out
     assert telegram_token not in captured.out + captured.err
     assert max_token not in captured.out + captured.err
+
+
+def test_inspect_state_returns_only_counters(tmp_path) -> None:
+    settings = Settings.from_env(
+        {
+            "MAX_VIEWER_ID": "123",
+            "MAX_AUTH_TOKEN": "m" * 32,
+            "MAX_DISCOVERY_MODE": "true",
+            "BRIDGE_STATE_DB": str(tmp_path / "state.db"),
+        }
+    )
+
+    assert inspect_state(settings) == {
+        "pending": 0,
+        "pending_failed": 0,
+        "delivered": 0,
+        "total": 0,
+    }

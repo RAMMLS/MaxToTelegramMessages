@@ -127,8 +127,10 @@ async def run_runtime(bundle: RuntimeBundle, *, install_signal_handlers: bool = 
         try:
             await bundle.bridge.close()
         finally:
+            logger.info("Bridge counters: %s", asdict(bundle.bridge.stats))
             if bundle.store is not None:
                 try:
+                    logger.info("Outbox counters: %s", asdict(bundle.store.stats()))
                     bundle.store.prune_defaults()
                 finally:
                     bundle.store.close()
@@ -148,6 +150,14 @@ async def validate_telegram(settings: Settings) -> dict[str, str]:
         await sender.close()
 
 
+def inspect_state(settings: Settings) -> dict[str, int]:
+    store = DedupeStore(settings.state_db).open()
+    try:
+        return asdict(store.stats())
+    finally:
+        store.close()
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="max-to-telegram",
@@ -162,6 +172,11 @@ def _parser() -> argparse.ArgumentParser:
         "--check-telegram",
         action="store_true",
         help="call getMe/getChat without sending a message",
+    )
+    parser.add_argument(
+        "--check-state",
+        action="store_true",
+        help="print content-free durable outbox counters",
     )
     parser.add_argument("--version", action="store_true", help="print version and exit")
     return parser
@@ -196,6 +211,9 @@ def main(argv: list[str] | None = None) -> int:
         if args.check_telegram:
             result = asyncio.run(validate_telegram(settings))
             print(json.dumps(result, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.check_state:
+            print(json.dumps(inspect_state(settings), sort_keys=True))
             return 0
 
         logger.info("Starting MAX-to-Telegram bridge: %s", settings.safe_summary())

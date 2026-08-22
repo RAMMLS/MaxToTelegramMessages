@@ -62,6 +62,28 @@ def test_pending_claim_is_retried_after_restart(tmp_path):
     assert retry.previous_attempts == 1
 
 
+def test_stats_are_content_free_and_track_failures(tmp_path):
+    secret_key = "super-secret-message-text"
+    with DedupeStore(tmp_path / "state.db") as store:
+        store.claim(secret_key)
+        store.mark_failed(secret_key, "network")
+        store.claim("delivered")
+        store.mark_delivered("delivered", [1])
+
+        stats = store.stats()
+
+    assert stats.pending == 1
+    assert stats.pending_failed == 1
+    assert stats.delivered == 1
+    assert stats.total == 2
+    assert secret_key not in repr(stats)
+
+
+def test_empty_stats_are_zero(tmp_path):
+    with DedupeStore(tmp_path / "state.db") as store:
+        assert store.stats().total == 0
+
+
 def test_outbox_message_survives_restart(tmp_path):
     path = tmp_path / "outbox.sqlite3"
     original = parsed_message()

@@ -72,6 +72,12 @@ max-to-telegram --check-config
 max-to-telegram --check-telegram
 ```
 
+Состояние durable outbox можно посмотреть без вывода содержимого сообщений:
+
+```bash
+max-to-telegram --check-state
+```
+
 Запуск:
 
 ```bash
