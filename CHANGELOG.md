@@ -18,6 +18,7 @@
 - отдельный exit code `75` для временного исчерпания Telegram retry;
 - systemd restart policy и усиленная sandbox-изоляция, проверенные `systemd-analyze`;
 - fail-closed отказ от ACK для ненормализуемого сообщения выбранного MAX-чата;
+- parser bounds для числовых полей и массива/типов вложений;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
