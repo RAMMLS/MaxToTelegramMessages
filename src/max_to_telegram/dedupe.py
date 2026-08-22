@@ -7,7 +7,7 @@ import os
 import sqlite3
 from contextlib import suppress
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from max_to_telegram.parser import ParsedMessage
@@ -304,7 +304,7 @@ class DedupeStore:
         return old + excess
 
     def prune_defaults(self, *, now: datetime | None = None) -> int:
-        current = _as_utc(now or datetime.now(UTC))
+        current = _as_utc(now or datetime.now(timezone.utc))
         return self.prune(delivered_before=current - timedelta(days=30))
 
     def _require_connection(self) -> sqlite3.Connection:
@@ -323,14 +323,14 @@ def _validate_key(value: str) -> str:
 
 
 def _utc_iso(value: datetime | None) -> str:
-    current = value or datetime.now(UTC)
+    current = value or datetime.now(timezone.utc)
     return _as_utc(current).isoformat(timespec="microseconds")
 
 
 def _as_utc(value: datetime) -> datetime:
     if value.tzinfo is None:
         raise DedupeError("timestamps must include a timezone")
-    return value.astimezone(UTC)
+    return value.astimezone(timezone.utc)
 
 
 def _rollback(connection: sqlite3.Connection) -> None:
@@ -378,7 +378,7 @@ def _deserialize_message(payload: str) -> ParsedMessage:
         sender_name=_stored_text(document, "sender_name"),
         chat_title=_stored_text(document, "chat_title"),
         text=_stored_text(document, "text"),
-        timestamp=timestamp.astimezone(UTC),
+        timestamp=timestamp.astimezone(timezone.utc),
         timestamp_raw=_stored_int(document, "timestamp_raw"),
         update_time=_stored_optional_int(document, "update_time"),
         status=_stored_optional_text(document, "status"),
