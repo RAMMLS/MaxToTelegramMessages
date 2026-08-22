@@ -7,6 +7,9 @@
 *.sqlite3-shm
 *.sqlite3-wal
 *.sqlite3.lock
+*.db
+*.db-shm
+*.db-wal
 *.db.lock
 
 .venv/
