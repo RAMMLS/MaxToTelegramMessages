@@ -282,7 +282,7 @@ async def test_ignores_non_message_frame(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
-async def test_discovery_reports_each_chat_once_without_sender_or_store() -> None:
+async def test_discovery_reports_each_chat_once_without_sender_or_store(caplog) -> None:
     discovered: list[DiscoveredChat] = []
     runtime = Bridge(
         source=FakeSource([frame(chat_id=42), frame(chat_id=42, message_id=2), frame(chat_id=99)]),
@@ -293,10 +293,13 @@ async def test_discovery_reports_each_chat_once_without_sender_or_store() -> Non
         discovery_sink=discovered.append,
     )
 
-    await runtime.run()
+    with caplog.at_level("INFO"):
+        await runtime.run()
 
     assert [item.chat_id for item in discovered] == [42, 99]
     assert runtime.stats.parsed_messages == 3
+    assert "User 456" not in caplog.text
+    assert "last_sender" not in caplog.text
 
 
 @pytest.mark.asyncio
