@@ -25,6 +25,14 @@ class DeliveryClaim:
     previous_attempts: int
 
 
+@dataclass(frozen=True, slots=True)
+class OutboxStats:
+    pending: int
+    pending_failed: int
+    delivered: int
+    total: int
+
+
 class DedupeStore:
     """Small SQLite store with an atomic pending/delivered state machine.
 
@@ -207,6 +215,27 @@ class DedupeStore:
                 raise DedupeError(f"pending delivery key does not match its payload: {key!r}")
             messages.append(message)
         return tuple(messages)
+
+    def stats(self) -> OutboxStats:
+        """Return content-free operational counters."""
+
+        connection = self._require_connection()
+        try:
+            row = connection.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN state = 'pending' THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN state = 'pending' AND last_error_kind IS NOT NULL
+                        THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN state = 'delivered' THEN 1 ELSE 0 END),
+                    COUNT(*)
+                FROM deliveries
+                """
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise DedupeError("could not inspect delivery records") from exc
+        assert row is not None
+        return OutboxStats(*(int(value or 0) for value in row))
 
     def mark_delivered(
         self,
