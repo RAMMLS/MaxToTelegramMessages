@@ -122,13 +122,13 @@ class Bridge:
 
         if self.discovery_mode or frame.opcode != OPCODE_NEW_MESSAGE:
             return
-        assert self.store is not None
+        store = self._delivery_store()
         try:
             message = self.parser.parse(frame)
         except MessageParseError:
             return
         if self.policy.decide(message) is PolicyDecision.FORWARD:
-            self.store.enqueue(message)
+            store.enqueue(message)
 
     async def _produce(self) -> None:
         try:
@@ -154,14 +154,14 @@ class Bridge:
                 await self._queue.put(_STOP)
 
     async def _recover_pending(self) -> None:
-        assert self.store is not None
-        pending = self.store.pending_messages()
+        store = self._delivery_store()
+        pending = store.pending_messages()
         if pending:
             logger.info("Recovering %d pending Telegram deliveries", len(pending))
         for message in pending:
             decision = self.policy.decide(message)
             if decision is not PolicyDecision.FORWARD:
-                self.store.discard_pending(message.dedupe_key)
+                store.discard_pending(message.dedupe_key)
                 self.stats.rejected_messages += 1
                 logger.info(
                     "Discarded pending message because current policy rejects it: "
@@ -174,7 +174,7 @@ class Bridge:
             await self._queue_message(message)
 
     async def _apply_policy_and_enqueue(self, message: ParsedMessage) -> None:
-        assert self.store is not None
+        store = self._delivery_store()
         decision = self.policy.decide(message)
         if decision is not PolicyDecision.FORWARD:
             self.stats.rejected_messages += 1
@@ -186,7 +186,7 @@ class Bridge:
             )
             return
 
-        claim = self.store.enqueue(message)
+        claim = store.enqueue(message)
         if not claim.should_deliver or message.dedupe_key in self._queued_keys:
             self.stats.duplicate_messages += 1
             return
@@ -202,19 +202,20 @@ class Bridge:
         self.stats.enqueued_messages += 1
 
     async def _deliver(self) -> None:
-        assert self.store is not None
-        assert self.sender is not None
+        store = self._delivery_store()
+        sender = self._delivery_sender()
         while True:
             item = await self._queue.get()
             try:
                 if item is _STOP:
                     return
-                assert isinstance(item, ParsedMessage)
+                if not isinstance(item, ParsedMessage):
+                    raise RuntimeError("bridge delivery queue contains an invalid item")
                 try:
-                    telegram_ids = await self.sender.send(item)
-                    self.store.mark_delivered(item.dedupe_key, telegram_ids)
+                    telegram_ids = await sender.send(item)
+                    store.mark_delivered(item.dedupe_key, telegram_ids)
                 except TelegramError as exc:
-                    self.store.mark_failed(item.dedupe_key, type(exc).__name__)
+                    store.mark_failed(item.dedupe_key, type(exc).__name__)
                     raise
                 self.stats.delivered_messages += 1
                 logger.info(
@@ -227,6 +228,16 @@ class Bridge:
                 if isinstance(item, ParsedMessage):
                     self._queued_keys.discard(item.dedupe_key)
                 self._queue.task_done()
+
+    def _delivery_store(self) -> DedupeStore:
+        if self.store is None:
+            raise RuntimeError("bridge delivery outbox is not configured")
+        return self.store
+
+    def _delivery_sender(self) -> MessageSender | TelegramSender:
+        if self.sender is None:
+            raise RuntimeError("bridge delivery sender is not configured")
+        return self.sender
 
     def _record_discovery(self, message: ParsedMessage) -> None:
         if message.chat_id in self._discovered_chat_ids:
