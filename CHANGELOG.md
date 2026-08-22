@@ -42,6 +42,7 @@
 - ранние лимиты нормализации MAX/Telegram remote metadata;
 - fail-closed policy для служебных и неизвестных не-`USER` message types;
 - 20-секундный graceful shutdown drain с bounded forced cancel;
+- по-частичные SQLite checkpoints для resume длинных Telegram уведомлений;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 

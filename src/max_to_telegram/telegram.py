@@ -74,6 +74,8 @@ class TelegramSender:
     sleep: Callable[[float], Awaitable[None]] = field(default=asyncio.sleep, repr=False)
     request_timeout: float = 20.0
     allow_missing_chat_id: bool = field(default=False, repr=False)
+    load_progress: Callable[[str], tuple[int, ...]] | None = field(default=None, repr=False)
+    save_progress: Callable[[str, tuple[int, ...]], None] | None = field(default=None, repr=False)
     _owns_session: bool = field(default=False, init=False, repr=False)
 
     def __post_init__(self) -> None:
@@ -85,13 +87,25 @@ class TelegramSender:
             raise TelegramPermanentError("Telegram chat ID must be a non-zero numeric int64 value")
         if self.max_retries < 0:
             raise TelegramPermanentError("Telegram retry count must not be negative")
+        if (self.load_progress is None) != (self.save_progress is None):
+            raise TelegramPermanentError(
+                "Telegram delivery progress loader and saver must be configured together"
+            )
 
     async def send(self, message: ParsedMessage) -> tuple[int, ...]:
         """Send one normalized MAX message, splitting it when necessary."""
 
-        message_ids: list[int] = []
-        for chunk in format_message_chunks(message):
+        chunks = format_message_chunks(message)
+        message_ids = list(self.load_progress(message.dedupe_key)) if self.load_progress else []
+        if len(message_ids) > len(chunks) or any(
+            isinstance(value, bool) or not isinstance(value, int) or value <= 0
+            for value in message_ids
+        ):
+            raise TelegramPermanentError("stored Telegram chunk progress is invalid")
+        for chunk in chunks[len(message_ids) :]:
             message_ids.append(await self._send_chunk(chunk))
+            if self.save_progress is not None:
+                self.save_progress(message.dedupe_key, tuple(message_ids))
         return tuple(message_ids)
 
     async def validate(self) -> TelegramValidation:

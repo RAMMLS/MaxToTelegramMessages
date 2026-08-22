@@ -226,6 +226,9 @@ async def test_builds_delivery_runtime_with_exact_allowlist(tmp_path) -> None:
         assert bundle.store is not None
         assert bundle.bridge.source.before_message_ack == bundle.bridge.persist_before_ack
         assert bundle.bridge.delivery_preflight is not None
+        assert bundle.bridge.sender is not None
+        assert bundle.bridge.sender.load_progress == bundle.store.delivery_progress
+        assert bundle.bridge.sender.save_progress == bundle.store.record_delivery_progress
     finally:
         await bundle.bridge.close()
         assert bundle.store is not None

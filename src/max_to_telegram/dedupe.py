@@ -223,16 +223,68 @@ class DedupeStore:
             connection.execute(
                 """
                 UPDATE deliveries
-                SET message_json = ?, updated_at = ?
+                SET message_json = ?, updated_at = ?,
+                    telegram_message_ids = CASE
+                        WHEN message_json = ? THEN telegram_message_ids
+                        ELSE NULL
+                    END
                 WHERE dedupe_key = ?
                 """,
-                (serialized, timestamp, key),
+                (serialized, timestamp, serialized, key),
             )
             connection.execute("COMMIT")
             return DeliveryClaim(should_deliver=True, previous_attempts=attempts)
         except sqlite3.Error as exc:
             _rollback(connection)
             raise DedupeError("could not enqueue a delivery record") from exc
+
+    def delivery_progress(self, dedupe_key: str) -> tuple[int, ...]:
+        """Return Telegram chunks already accepted for one pending delivery."""
+
+        key = _validate_key(dedupe_key)
+        connection = self._require_connection()
+        try:
+            row = connection.execute(
+                "SELECT state, telegram_message_ids FROM deliveries WHERE dedupe_key = ?",
+                (key,),
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise DedupeError("could not load delivery progress") from exc
+        if row is None or str(row[0]) != "pending":
+            raise DedupeError("delivery progress record is not pending")
+        if row[1] is None:
+            return ()
+        try:
+            values = json.loads(str(row[1]))
+        except json.JSONDecodeError as exc:
+            raise DedupeError("delivery progress is corrupt") from exc
+        return _validated_telegram_ids(values, allow_empty=True)
+
+    def record_delivery_progress(
+        self,
+        dedupe_key: str,
+        telegram_message_ids: tuple[int, ...] | list[int],
+        *,
+        now: datetime | None = None,
+    ) -> None:
+        """Atomically checkpoint chunks accepted before the whole message finishes."""
+
+        key = _validate_key(dedupe_key)
+        validated = _validated_telegram_ids(telegram_message_ids, allow_empty=False)
+        connection = self._require_connection()
+        try:
+            cursor = connection.execute(
+                """
+                UPDATE deliveries
+                SET updated_at = ?, telegram_message_ids = ?
+                WHERE dedupe_key = ? AND state = 'pending'
+                """,
+                (_utc_iso(now), json.dumps(list(validated)), key),
+            )
+        except sqlite3.Error as exc:
+            raise DedupeError("could not checkpoint delivery progress") from exc
+        if cursor.rowcount != 1:
+            raise DedupeError("delivery progress record was not pending")
 
     def pending_messages(self, *, limit: int = 10_000) -> tuple[ParsedMessage, ...]:
         """Return recoverable pending messages in durable insertion order."""
@@ -335,11 +387,7 @@ class DedupeStore:
         now: datetime | None = None,
     ) -> None:
         key = _validate_key(dedupe_key)
-        if not telegram_message_ids or any(
-            isinstance(value, bool) or not isinstance(value, int) or value <= 0
-            for value in telegram_message_ids
-        ):
-            raise DedupeError("telegram message IDs must be positive integers")
+        validated = _validated_telegram_ids(telegram_message_ids, allow_empty=False)
         connection = self._require_connection()
         try:
             cursor = connection.execute(
@@ -349,7 +397,7 @@ class DedupeStore:
                     last_error_kind = NULL, message_json = NULL
                 WHERE dedupe_key = ? AND state = 'pending'
                 """,
-                (_utc_iso(now), json.dumps(list(telegram_message_ids)), key),
+                (_utc_iso(now), json.dumps(list(validated)), key),
             )
         except sqlite3.Error as exc:
             raise DedupeError("could not mark a delivery record as delivered") from exc
@@ -505,6 +553,19 @@ def _validate_key(value: str) -> str:
     if not key or len(key) > 1024 or "\x00" in key:
         raise DedupeError("dedupe key has an invalid value")
     return key
+
+
+def _validated_telegram_ids(value: object, *, allow_empty: bool) -> tuple[int, ...]:
+    if not isinstance(value, (list, tuple)):
+        raise DedupeError("telegram message IDs must be positive integers")
+    ids = tuple(value)
+    if (not ids and not allow_empty) or any(
+        isinstance(item, bool) or not isinstance(item, int) or item <= 0 for item in ids
+    ):
+        raise DedupeError("telegram message IDs must be positive integers")
+    if len(ids) > 10_000:
+        raise DedupeError("telegram message ID progress is unexpectedly large")
+    return ids
 
 
 def _utc_iso(value: datetime | None) -> str:

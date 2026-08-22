@@ -260,6 +260,67 @@ async def test_sends_all_long_message_chunks() -> None:
 
 
 @pytest.mark.asyncio
+async def test_resumes_long_message_after_persisted_chunk_checkpoint() -> None:
+    message = parsed_message(text="x" * 10_000)
+    chunks = format_message_chunks(message)
+    assert len(chunks) >= 3
+    progress: dict[str, tuple[int, ...]] = {}
+
+    first_session = FakeSession(
+        FakeResponse(200, {"ok": True, "result": {"message_id": 501}}),
+        aiohttp.ClientConnectionError("temporary outage"),
+    )
+    first_sender = TelegramSender(
+        BOT_TOKEN,
+        "42",
+        max_retries=0,
+        session=first_session,
+        load_progress=lambda key: progress.get(key, ()),
+        save_progress=lambda key, ids: progress.__setitem__(key, ids),
+    )
+
+    with pytest.raises(TelegramRetryExhausted):
+        await first_sender.send(message)
+
+    assert progress[message.dedupe_key] == (501,)
+    assert len(first_session.requests) == 2
+
+    remaining_responses = [
+        FakeResponse(200, {"ok": True, "result": {"message_id": 502 + index}})
+        for index in range(len(chunks) - 1)
+    ]
+    second_session = FakeSession(*remaining_responses)
+    second_sender = TelegramSender(
+        BOT_TOKEN,
+        "42",
+        session=second_session,
+        load_progress=lambda key: progress.get(key, ()),
+        save_progress=lambda key, ids: progress.__setitem__(key, ids),
+    )
+
+    result = await second_sender.send(message)
+
+    assert result[0] == 501
+    assert len(result) == len(chunks)
+    assert len(second_session.requests) == len(chunks) - 1
+    assert progress[message.dedupe_key] == result
+
+
+@pytest.mark.asyncio
+async def test_rejects_progress_longer_than_formatted_message() -> None:
+    sender = TelegramSender(
+        BOT_TOKEN,
+        "42",
+        session=FakeSession(),
+        load_progress=lambda _key: (1, 2),
+        save_progress=lambda _key, _ids: None,
+    )
+
+    with pytest.raises(TelegramPermanentError, match="chunk progress"):
+        await sender.send(parsed_message(text="short"))
+
+
+@pytest.mark.asyncio
 async def test_validates_bot_and_destination_without_sending_message() -> None:
     session = FakeSession(
         FakeResponse(200, {"ok": True, "result": {"id": 1, "username": "bridge_bot"}}),
@@ -411,3 +472,8 @@ async def test_validation_rejects_malformed_success_response() -> None:
 def test_rejects_invalid_sender_configuration(token: str, chat_id: str, message: str) -> None:
     with pytest.raises(TelegramPermanentError, match=message):
         TelegramSender(token, chat_id)
+
+
+def test_rejects_half_configured_delivery_progress_callbacks() -> None:
+    with pytest.raises(TelegramPermanentError, match="loader and saver"):
+        TelegramSender(BOT_TOKEN, "42", load_progress=lambda _key: ())
