@@ -234,6 +234,29 @@ def test_legacy_database_gets_outbox_column(tmp_path):
         store.enqueue(parsed_message())
         assert store.pending_messages() == (parsed_message(),)
 
+    with closing(sqlite3.connect(path)) as connection:
+        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+
+
+def test_rejects_database_from_newer_schema_version(tmp_path):
+    path = tmp_path / "future.db"
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("PRAGMA user_version=2")
+    path.chmod(0o600)
+
+    with pytest.raises(DedupeError, match="newer schema"):
+        DedupeStore(path).open()
+
+
+def test_rejects_incompatible_existing_delivery_table(tmp_path):
+    path = tmp_path / "incompatible.db"
+    with closing(sqlite3.connect(path)) as connection:
+        connection.execute("CREATE TABLE deliveries (dedupe_key TEXT PRIMARY KEY)")
+    path.chmod(0o600)
+
+    with pytest.raises(DedupeError, match="incompatible schema"):
+        DedupeStore(path).open()
+
 
 def test_edited_revision_uses_a_distinct_key(tmp_path):
     with DedupeStore(tmp_path / "state.db") as store:
