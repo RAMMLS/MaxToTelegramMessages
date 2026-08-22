@@ -24,6 +24,20 @@ class DedupeError(RuntimeError):
     """Raised when the delivery state cannot be read or updated safely."""
 
 
+_SCHEMA_VERSION = 1
+_REQUIRED_DELIVERY_COLUMNS = frozenset(
+    {
+        "dedupe_key",
+        "state",
+        "attempts",
+        "updated_at",
+        "telegram_message_ids",
+        "last_error_kind",
+        "message_json",
+    }
+)
+
+
 @dataclass(frozen=True, slots=True)
 class DeliveryClaim:
     """Result of claiming a MAX message revision for delivery."""
@@ -73,6 +87,11 @@ class DedupeStore:
             connection.execute("PRAGMA journal_mode=WAL")
             connection.execute("PRAGMA synchronous=FULL")
             connection.execute("PRAGMA busy_timeout=10000")
+            connection.execute("PRAGMA trusted_schema=OFF")
+            version_row = connection.execute("PRAGMA user_version").fetchone()
+            schema_version = int(version_row[0]) if version_row is not None else 0
+            if schema_version > _SCHEMA_VERSION:
+                raise DedupeError("delivery state database uses a newer schema version")
             connection.execute(
                 """
                 CREATE TABLE IF NOT EXISTS deliveries (
@@ -87,11 +106,17 @@ class DedupeStore:
                 """
             )
             columns = {str(row[1]) for row in connection.execute("PRAGMA table_info(deliveries)")}
+            if not (_REQUIRED_DELIVERY_COLUMNS - {"message_json"}).issubset(columns):
+                raise DedupeError("delivery state database has an incompatible schema")
             if "message_json" not in columns:
                 connection.execute("ALTER TABLE deliveries ADD COLUMN message_json TEXT")
+                columns.add("message_json")
+            if not _REQUIRED_DELIVERY_COLUMNS.issubset(columns):
+                raise DedupeError("delivery state database has an incompatible schema")
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS deliveries_updated_at ON deliveries(updated_at)"
             )
+            connection.execute(f"PRAGMA user_version={_SCHEMA_VERSION}")
         except BaseException as exc:
             if connection is not None:
                 connection.close()
