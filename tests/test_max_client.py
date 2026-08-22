@@ -260,6 +260,28 @@ async def test_login_error_is_classified_as_authentication_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_command_timeout_is_absolute_across_unrelated_frames() -> None:
+    codec = FrameCodec()
+    websocket = FakeWebSocket([encoded(codec, Frame(cmd=1, seq=999, opcode=777, payload={}))])
+    clock_values = iter((0.0, 0.0, 36.0))
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        monotonic=lambda: next(clock_values),
+    )
+
+    with pytest.raises(asyncio.TimeoutError):
+        await client._wait_for_response(
+            websocket,
+            asyncio.Lock(),
+            seq=0,
+            opcode=OPCODE_INIT,
+        )
+
+    assert len(websocket.incoming) == 0
+
+
+@pytest.mark.asyncio
 async def test_init_command_error_is_not_retried_as_network_failure() -> None:
     codec = FrameCodec()
     websocket = FakeWebSocket(

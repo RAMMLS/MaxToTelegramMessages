@@ -81,6 +81,7 @@ class MaxClient:
         device_id: str | None = None,
         command_timeout: float = 35.0,
         keepalive_interval: float = 30.0,
+        monotonic: Callable[[], float] | None = None,
     ) -> None:
         self.settings = settings
         self.credentials = credentials
@@ -92,6 +93,7 @@ class MaxClient:
         self.credentials_updated = credentials_updated
         self.command_timeout = command_timeout
         self.keepalive_interval = keepalive_interval
+        self.monotonic = monotonic
         self.device_id = device_id or settings.max_device_id or str(uuid.uuid4())
         self._stop_event = asyncio.Event()
         self._next_seq = 0
@@ -229,8 +231,13 @@ class MaxClient:
         opcode: int,
     ) -> tuple[Frame, list[Frame]]:
         buffered: list[Frame] = []
+        clock = self.monotonic or asyncio.get_running_loop().time
+        deadline = clock() + self.command_timeout
         while True:
-            raw = await asyncio.wait_for(websocket.recv(), timeout=self.command_timeout)
+            remaining = deadline - clock()
+            if remaining <= 0:
+                raise asyncio.TimeoutError
+            raw = await asyncio.wait_for(websocket.recv(), timeout=remaining)
             frame = self._decode_raw(raw)
             if frame.cmd == 0:
                 should_yield = await self._ack_push(websocket, send_lock, frame)
