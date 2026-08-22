@@ -155,12 +155,13 @@ class MaxClient:
             buffered = await self._handshake(websocket, send_lock, user_agent)
             logger.info("MAX session authenticated")
             keepalive = asyncio.create_task(self._keepalive(websocket, send_lock))
+            receive: asyncio.Future[bytes | str] | None = None
             try:
                 for frame in buffered:
                     yield frame
                 iterator = websocket.__aiter__()
                 while True:
-                    receive: asyncio.Future[bytes | str] = asyncio.ensure_future(anext(iterator))
+                    receive = asyncio.ensure_future(anext(iterator))
                     done, _ = await asyncio.wait(
                         (receive, keepalive),
                         return_when=asyncio.FIRST_COMPLETED,
@@ -183,6 +184,10 @@ class MaxClient:
                     elif frame.cmd == 3:
                         raise self._command_error(frame)
             finally:
+                if receive is not None and not receive.done():
+                    receive.cancel()
+                if receive is not None:
+                    await asyncio.gather(receive, return_exceptions=True)
                 if not keepalive.done():
                     keepalive.cancel()
                 await asyncio.gather(keepalive, return_exceptions=True)

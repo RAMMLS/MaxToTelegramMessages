@@ -47,6 +47,7 @@ class KeepaliveFailingWebSocket(FakeWebSocket):
     def __init__(self, incoming: list[bytes | str]) -> None:
         super().__init__(incoming)
         self.wait_forever = asyncio.Event()
+        self.receive_cancelled = False
 
     async def send(self, message: bytes) -> None:
         if len(self.sent) >= 2:
@@ -54,8 +55,12 @@ class KeepaliveFailingWebSocket(FakeWebSocket):
         await super().send(message)
 
     async def __anext__(self) -> bytes | str:
-        await self.wait_forever.wait()
-        raise StopAsyncIteration
+        try:
+            await self.wait_forever.wait()
+            raise StopAsyncIteration
+        except asyncio.CancelledError:
+            self.receive_cancelled = True
+            raise
 
 
 class FakeConnection:
@@ -445,6 +450,27 @@ async def test_keepalive_send_failure_interrupts_blocked_receive() -> None:
 
     with pytest.raises(OSError, match="keepalive send failed"):
         await asyncio.wait_for(anext(client._connected_events()), timeout=0.2)
+    assert websocket.receive_cancelled is True
+
+
+@pytest.mark.asyncio
+async def test_listener_cancellation_cleans_up_blocked_receive() -> None:
+    codec = FrameCodec()
+    websocket = KeepaliveFailingWebSocket(login_success(codec))
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        connector=FakeConnector(websocket),
+        keepalive_interval=3_600,
+    )
+    listener = asyncio.create_task(anext(client._connected_events()))
+    await asyncio.sleep(0.001)
+
+    listener.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await listener
+
+    assert websocket.receive_cancelled is True
 
 
 @pytest.mark.asyncio
