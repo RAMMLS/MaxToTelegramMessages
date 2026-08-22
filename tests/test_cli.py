@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import json
+import os
+import signal
 from dataclasses import dataclass
 
 import pytest
@@ -99,6 +102,48 @@ async def test_store_closes_even_if_sender_close_fails() -> None:
         await run_runtime(bundle, install_signal_handlers=False)
 
     assert store.pruned and store.closed
+
+
+@pytest.mark.skipif(os.name == "nt", reason="requires POSIX event-loop signal handlers")
+@pytest.mark.asyncio
+async def test_sigterm_allows_runtime_to_drain_before_close() -> None:
+    class GracefulBridge(FakeBridge):
+        def __init__(self) -> None:
+            super().__init__()
+            self.started = asyncio.Event()
+            self.stop_requested = asyncio.Event()
+            self.drained = False
+
+        async def run(self) -> None:
+            self.ran = True
+            self.started.set()
+            await self.stop_requested.wait()
+            await asyncio.sleep(0)
+            self.drained = True
+
+        def stop(self) -> None:
+            super().stop()
+            self.stop_requested.set()
+
+    bridge = GracefulBridge()
+    bundle = RuntimeBundle(bridge=bridge, store=None)  # type: ignore[arg-type]
+    runtime = asyncio.create_task(run_runtime(bundle, shutdown_timeout=1.0))
+    await bridge.started.wait()
+
+    os.kill(os.getpid(), signal.SIGTERM)
+
+    assert await asyncio.wait_for(runtime, timeout=2.0) == 0
+    assert bridge.drained is True
+    assert bridge.stopped is True
+    assert bridge.closed is True
+
+
+@pytest.mark.asyncio
+async def test_rejects_non_positive_shutdown_timeout() -> None:
+    bundle = RuntimeBundle(bridge=FakeBridge(), store=None)  # type: ignore[arg-type]
+
+    with pytest.raises(ValueError, match="shutdown timeout"):
+        await run_runtime(bundle, install_signal_handlers=False, shutdown_timeout=0)
 
 
 def test_builds_discovery_runtime_without_telegram(tmp_path) -> None:
