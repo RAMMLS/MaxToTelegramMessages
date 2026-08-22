@@ -31,7 +31,7 @@ _DEFAULT_MAX_LOCALE = "ru"
 _MAX_DOTENV_BYTES = 64 * 1024
 _TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
 _TELEGRAM_CHAT_ID_PATTERN = re.compile(r"-?[1-9][0-9]{0,19}\Z")
-ValidationPurpose = Literal["runtime", "telegram", "telegram_discovery", "state"]
+ValidationPurpose = Literal["runtime", "max_public", "telegram", "telegram_discovery", "state"]
 
 
 def is_valid_telegram_bot_token(value: str | None) -> bool:
@@ -190,7 +190,7 @@ class Settings:
         """Reject incomplete settings before any network connection is opened."""
 
         errors: list[str] = []
-        if purpose == "runtime":
+        if purpose in {"runtime", "max_public"}:
             parsed_ws_url = urlparse(self.max_ws_url)
             if parsed_ws_url.scheme != "wss" or not parsed_ws_url.netloc:
                 errors.append("MAX_WS_URL must be an absolute wss:// URL")
@@ -199,6 +199,7 @@ class Settings:
             if not self.max_locale:
                 errors.append("MAX_LOCALE must not be empty")
 
+        if purpose == "runtime":
             direct_auth_parts = (self.max_viewer_id is not None, self.max_auth_token is not None)
             if any(direct_auth_parts) and not all(direct_auth_parts):
                 errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
@@ -228,6 +229,8 @@ class Settings:
                     errors.append("TELEGRAM_CHAT_ID is required outside discovery mode")
                 elif not is_valid_telegram_chat_id(self.telegram_chat_id):
                     errors.append("TELEGRAM_CHAT_ID must be a non-zero numeric int64 chat ID")
+        elif purpose == "max_public":
+            pass
         elif purpose == "telegram":
             if not self.telegram_bot_token:
                 errors.append("TELEGRAM_BOT_TOKEN is required")

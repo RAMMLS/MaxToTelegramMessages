@@ -19,6 +19,8 @@ from max_to_telegram.protocol import Frame, FrameCodec, ProtocolError
 
 logger = logging.getLogger(__name__)
 
+MAX_WEB_USER_AGENT = "Mozilla/5.0 MAX-to-Telegram/0.1"
+
 OPCODE_KEEPALIVE = 1
 OPCODE_INIT = 6
 OPCODE_LOGIN = 19
@@ -139,7 +141,7 @@ class MaxClient:
 
     async def _connected_events(self) -> AsyncIterator[Frame]:
         self._next_seq = 0
-        user_agent = "Mozilla/5.0 MAX-to-Telegram/0.1"
+        user_agent = MAX_WEB_USER_AGENT
         async with self.connector(
             self.settings.max_ws_url,
             origin="https://web.max.ru",
@@ -311,22 +313,7 @@ class MaxClient:
         return value
 
     def _init_payload(self, user_agent: str) -> dict[str, Any]:
-        return {
-            "userAgent": {
-                "deviceType": "WEB",
-                "pushDeviceType": "WEBPUSH",
-                "locale": self.settings.max_locale,
-                "deviceLocale": self.settings.max_locale,
-                "osVersion": "Python",
-                "deviceName": "MAX to Telegram bridge",
-                "headerUserAgent": user_agent,
-                "isPwa": False,
-                "appVersion": self.settings.max_app_version,
-                "screen": "0x0 1.0x",
-                "timezone": "Europe/Moscow",
-            },
-            "deviceId": self.device_id,
-        }
+        return build_init_payload(self.settings, self.device_id, user_agent)
 
     def _login_payload(self) -> dict[str, Any]:
         return {
@@ -392,3 +379,24 @@ def _safe_server_text(value: Any, *, fallback: str, maximum: int, secret: str) -
         return fallback
     rendered = " ".join(str(value).split()).replace(secret, "<redacted>")
     return rendered[:maximum] or fallback
+
+
+def build_init_payload(settings: Settings, device_id: str, user_agent: str) -> dict[str, Any]:
+    """Build the credential-free opcode 6 payload shared with the public probe."""
+
+    return {
+        "userAgent": {
+            "deviceType": "WEB",
+            "pushDeviceType": "WEBPUSH",
+            "locale": settings.max_locale,
+            "deviceLocale": settings.max_locale,
+            "osVersion": "Python",
+            "deviceName": "MAX to Telegram bridge",
+            "headerUserAgent": user_agent,
+            "isPwa": False,
+            "appVersion": settings.max_app_version,
+            "screen": "0x0 1.0x",
+            "timezone": "Europe/Moscow",
+        },
+        "deviceId": device_id,
+    }

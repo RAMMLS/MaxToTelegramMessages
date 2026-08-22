@@ -16,6 +16,7 @@ from max_to_telegram.cli import (
 )
 from max_to_telegram.config import ConfigError, Settings
 from max_to_telegram.dedupe import OutboxStats
+from max_to_telegram.public_probe import PublicProbeResult
 from max_to_telegram.telegram import TelegramRetryExhausted
 
 BOT_TOKEN = "12345:TEST_ONLY_NOT_A_REAL_BOT_TOKEN_12345"
@@ -259,6 +260,28 @@ def test_transient_telegram_failure_returns_tempfail_without_secret(
 def test_version_does_not_require_configuration(capsys) -> None:
     assert main(["--version"]) == 0
     assert capsys.readouterr().out.strip() == "0.1.0"
+
+
+def test_checks_public_max_without_credentials(monkeypatch, capsys) -> None:
+    for key in ("MAX_VIEWER_ID", "MAX_AUTH_TOKEN", "MAX_SESSION_FILE", "TELEGRAM_BOT_TOKEN"):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.chdir("/")
+
+    async def fake_probe(_settings):
+        return PublicProbeResult(
+            endpoint_host="api.oneme.ru",
+            protocol_version=10,
+            init_opcode=6,
+            compressed_response=True,
+            public_config_key_count=5,
+        )
+
+    monkeypatch.setattr("max_to_telegram.cli.probe_max_public", fake_probe)
+
+    assert main(["--check-max-public"]) == 0
+    captured = capsys.readouterr()
+    assert '"protocol_version": 10' in captured.out
+    assert '"init_opcode": 6' in captured.out
 
 
 def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
