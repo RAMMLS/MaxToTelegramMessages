@@ -232,6 +232,39 @@ async def test_login_error_is_classified_as_authentication_failure() -> None:
 
 
 @pytest.mark.asyncio
+async def test_server_error_cannot_echo_credentials_or_multiline_text() -> None:
+    codec = FrameCodec()
+    token = "max-private-token-123456789012345"
+    websocket = FakeWebSocket(
+        [
+            encoded(codec, Frame(cmd=1, seq=0, opcode=OPCODE_INIT, payload={})),
+            encoded(
+                codec,
+                Frame(
+                    cmd=3,
+                    seq=1,
+                    opcode=OPCODE_LOGIN,
+                    payload={
+                        "error": f"login.{token}",
+                        "localizedMessage": f"rejected {token}\n" + "x" * 1000,
+                    },
+                ),
+            ),
+        ]
+    )
+    client = MaxClient(settings(), MaxCredentials(123, token), connector=FakeConnector(websocket))
+
+    with pytest.raises(MaxAuthenticationError) as raised:
+        [frame async for frame in client._connected_events()]
+
+    rendered = str(raised.value)
+    assert token not in rendered
+    assert "<redacted>" in rendered
+    assert "\n" not in rendered
+    assert len(rendered) < 700
+
+
+@pytest.mark.asyncio
 async def test_rejects_login_for_different_viewer() -> None:
     codec = FrameCodec()
     websocket = FakeWebSocket(
