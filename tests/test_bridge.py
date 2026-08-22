@@ -145,6 +145,33 @@ async def test_duplicate_push_is_sent_once(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_pre_ack_hook_persists_only_selected_incoming_messages(tmp_path) -> None:
+    runtime, _, store = bridge(tmp_path, [])
+    try:
+        await runtime.persist_before_ack(frame(chat_id=42, message_id=1))
+        await runtime.persist_before_ack(frame(chat_id=99, message_id=2))
+        await runtime.persist_before_ack(frame(chat_id=42, message_id=3, sender_id=123))
+
+        assert [message.message_id for message in store.pending_messages()] == ["1"]
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_pre_ack_hook_ignores_malformed_or_irrelevant_frame(tmp_path) -> None:
+    runtime, _, store = bridge(tmp_path, [])
+    try:
+        await runtime.persist_before_ack(
+            Frame(cmd=0, seq=1, opcode=OPCODE_NEW_MESSAGE, payload={"chatId": 42})
+        )
+        await runtime.persist_before_ack(Frame(cmd=0, seq=2, opcode=777))
+
+        assert store.pending_messages() == ()
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 async def test_recovers_pending_outbox_before_live_events(tmp_path) -> None:
     store = DedupeStore(tmp_path / "state.db").open()
     pending = parsed_message()

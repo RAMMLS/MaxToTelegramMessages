@@ -66,6 +66,7 @@ def build_runtime(settings: Settings) -> RuntimeBundle:
             store=store,
             sender=sender,
         )
+        source.set_before_message_ack(bridge.persist_before_ack)
     except BaseException:
         store.close()
         raise

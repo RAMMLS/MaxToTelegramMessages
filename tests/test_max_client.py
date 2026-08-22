@@ -131,6 +131,66 @@ async def test_handshake_acknowledges_ping_and_message_before_yield() -> None:
 
 
 @pytest.mark.asyncio
+async def test_durable_hook_completes_before_message_ack() -> None:
+    codec = FrameCodec()
+    push = Frame(
+        cmd=0,
+        seq=21,
+        opcode=OPCODE_NEW_MESSAGE,
+        payload={"chatId": 42, "message": {"id": 777, "sender": 456, "time": 1000}},
+    )
+    websocket = FakeWebSocket([*login_success(codec), encoded(codec, push)])
+    observed_sent_counts: list[int] = []
+
+    async def before_ack(frame: Frame) -> None:
+        assert frame.opcode == push.opcode
+        assert frame.seq == push.seq
+        assert frame.payload == push.payload
+        observed_sent_counts.append(len(websocket.sent))
+
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        connector=FakeConnector(websocket),
+    )
+    client.set_before_message_ack(before_ack)
+
+    received = [frame async for frame in client._connected_events()]
+
+    assert [item.payload for item in received] == [push.payload]
+    assert observed_sent_counts == [2]
+    assert len(websocket.sent) == 3
+    assert codec.decode(websocket.sent[-1]).cmd == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_durable_hook_prevents_message_ack() -> None:
+    codec = FrameCodec()
+    push = Frame(
+        cmd=0,
+        seq=21,
+        opcode=OPCODE_NEW_MESSAGE,
+        payload={"chatId": 42, "message": {"id": 777, "sender": 456, "time": 1000}},
+    )
+    websocket = FakeWebSocket([*login_success(codec), encoded(codec, push)])
+
+    async def before_ack(_frame: Frame) -> None:
+        raise RuntimeError("storage unavailable")
+
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        connector=FakeConnector(websocket),
+        before_message_ack=before_ack,
+    )
+
+    with pytest.raises(RuntimeError, match="storage unavailable"):
+        [frame async for frame in client._connected_events()]
+
+    assert [codec.decode(item).opcode for item in websocket.sent] == [OPCODE_INIT, OPCODE_LOGIN]
+
+
+@pytest.mark.asyncio
 async def test_connection_uses_tls_origin_and_disables_websocket_ping() -> None:
     codec = FrameCodec()
     websocket = FakeWebSocket(login_success(codec))

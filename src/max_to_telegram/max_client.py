@@ -54,6 +54,7 @@ class WebSocketLike(Protocol):
 
 Connector = Callable[..., AbstractAsyncContextManager[WebSocketLike]]
 Sleep = Callable[[float], Awaitable[None]]
+MessageHook = Callable[[Frame], Awaitable[None]]
 
 
 class MaxClient:
@@ -72,6 +73,7 @@ class MaxClient:
         codec: FrameCodec | None = None,
         sleep: Sleep = asyncio.sleep,
         random_uniform: Callable[[float, float], float] = random.uniform,
+        before_message_ack: MessageHook | None = None,
         command_timeout: float = 35.0,
         keepalive_interval: float = 30.0,
     ) -> None:
@@ -81,6 +83,7 @@ class MaxClient:
         self.codec = codec or FrameCodec()
         self.sleep = sleep
         self.random_uniform = random_uniform
+        self.before_message_ack = before_message_ack
         self.command_timeout = command_timeout
         self.keepalive_interval = keepalive_interval
         self.device_id = settings.max_device_id or str(uuid.uuid4())
@@ -91,6 +94,11 @@ class MaxClient:
         """Ask the reconnect loop to stop after the current operation."""
 
         self._stop_event.set()
+
+    def set_before_message_ack(self, hook: MessageHook) -> None:
+        """Install durable-ingest work that must succeed before message ACK."""
+
+        self.before_message_ack = hook
 
     async def events(self) -> AsyncIterator[Frame]:
         """Yield acknowledged MAX push frames and reconnect on transport errors."""
@@ -235,6 +243,8 @@ class MaxClient:
                 or "chatId" not in frame.payload
             ):
                 raise ProtocolError("MAX message push is missing chatId or message.id")
+            if self.before_message_ack is not None:
+                await self.before_message_ack(frame)
             await self._send(
                 websocket,
                 send_lock,
