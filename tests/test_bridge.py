@@ -188,6 +188,27 @@ async def test_recovers_pending_outbox_before_live_events(tmp_path) -> None:
 
 
 @pytest.mark.asyncio
+async def test_streams_large_pending_outbox_through_small_queue(tmp_path) -> None:
+    store = DedupeStore(tmp_path / "state.db").open()
+    for index in range(250):
+        store.enqueue(
+            parsed_message(
+                message_id=str(index),
+            )
+        )
+    runtime, sender, _ = bridge(tmp_path, [], store=store)
+    try:
+        await runtime.run()
+
+        assert len(sender.messages) == 250
+        assert runtime.stats.delivered_messages == 250
+        assert store.stats().pending == 0
+        assert store.stats().delivered == 250
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
 async def test_removed_allowlist_chat_discards_pending_item(tmp_path) -> None:
     store = DedupeStore(tmp_path / "state.db").open()
     pending = parsed_message(chat_id=77)
