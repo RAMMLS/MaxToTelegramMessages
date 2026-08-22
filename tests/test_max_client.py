@@ -17,6 +17,7 @@ from max_to_telegram.max_client import (
     MaxAuthenticationError,
     MaxClient,
     MaxClientError,
+    MaxCommandError,
 )
 from max_to_telegram.protocol import Frame, FrameCodec, ProtocolError
 
@@ -256,6 +257,39 @@ async def test_login_error_is_classified_as_authentication_failure() -> None:
 
     with pytest.raises(MaxAuthenticationError, match=r"login\.token"):
         [frame async for frame in client._connected_events()]
+
+
+@pytest.mark.asyncio
+async def test_init_command_error_is_not_retried_as_network_failure() -> None:
+    codec = FrameCodec()
+    websocket = FakeWebSocket(
+        [
+            encoded(
+                codec,
+                Frame(
+                    cmd=3,
+                    seq=0,
+                    opcode=OPCODE_INIT,
+                    payload={"error": "client.version", "message": "upgrade required"},
+                ),
+            )
+        ]
+    )
+    sleeps: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        sleeps.append(delay)
+
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        connector=FakeConnector(websocket),
+        sleep=fake_sleep,
+    )
+
+    with pytest.raises(MaxCommandError, match=r"client\.version"):
+        [frame async for frame in client.events()]
+    assert sleeps == []
 
 
 @pytest.mark.asyncio

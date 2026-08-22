@@ -32,6 +32,7 @@
 - публичный MAX probe не читает `.env` и локальные credentials;
 - `.env` загружается только из текущего каталога без parent-directory search;
 - keepalive task failure немедленно прерывает blocked WebSocket receive для reconnect;
+- MAX command errors отделены от transient transport reconnect;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 

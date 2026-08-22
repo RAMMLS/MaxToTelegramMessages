@@ -117,7 +117,7 @@ class MaxClient:
                     yield frame
                 if not self._stop_event.is_set():
                     raise MaxClientError("MAX WebSocket closed without an error")
-            except (MaxAuthenticationError, AuthError, ProtocolError):
+            except (MaxAuthenticationError, MaxCommandError, AuthError, ProtocolError):
                 raise
             except asyncio.CancelledError:
                 raise
