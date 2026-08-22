@@ -96,6 +96,11 @@ legacy pending-записи без тела сообщения. При нену�
 max-to-telegram
 ```
 
+Процесс возвращает код `2` для постоянной ошибки конфигурации, credentials,
+protocol/state или запроса Telegram. Исчерпание retry из-за временной сети/API
+возвращает `75` (`EX_TEMPFAIL`), чтобы supervisor мог безопасно перезапустить
+мост и восстановить pending outbox.
+
 Альтернативный вариант без console script:
 
 ```bash

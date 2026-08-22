@@ -24,7 +24,7 @@ from max_to_telegram.logging_utils import configure_logging
 from max_to_telegram.max_client import MaxAuthenticationError, MaxClient, MaxClientError
 from max_to_telegram.parser import ChatPolicy, MessageParser
 from max_to_telegram.protocol import ProtocolError
-from max_to_telegram.telegram import TelegramError, TelegramSender
+from max_to_telegram.telegram import TelegramError, TelegramRetryExhausted, TelegramSender
 
 logger = logging.getLogger(__name__)
 
@@ -259,6 +259,9 @@ def main(argv: list[str] | None = None) -> int:
         return asyncio.run(run_runtime(bundle))
     except KeyboardInterrupt:
         return 130
+    except TelegramRetryExhausted as exc:
+        print(f"max-to-telegram: {exc}", file=sys.stderr)
+        return 75
     except (
         AuthError,
         ConfigError,
