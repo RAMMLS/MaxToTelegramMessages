@@ -25,3 +25,10 @@ def test_source_manifest_excludes_local_secret_and_state_patterns() -> None:
     assert "global-exclude .env" in manifest
     assert "*.sqlite3" in manifest
     assert "*.db" in manifest
+
+
+def test_package_declares_pep561_type_information() -> None:
+    pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
+
+    assert 'max_to_telegram = ["py.typed"]' in pyproject
+    assert (PROJECT_ROOT / "src/max_to_telegram/py.typed").is_file()

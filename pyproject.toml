@@ -53,6 +53,9 @@ max-to-telegram = "max_to_telegram.cli:main"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.setuptools.package-data]
+max_to_telegram = ["py.typed"]
+
 [tool.pytest.ini_options]
 addopts = "-ra --strict-config --strict-markers"
 asyncio_mode = "auto"
