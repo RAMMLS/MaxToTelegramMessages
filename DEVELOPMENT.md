@@ -7,8 +7,9 @@
 только в `integration/nightly` через merge commits.
 
 В текущем окружении доступен Git push по SSH, но отсутствует GitHub CLI/API token.
-Поэтому автоматически создать серверные PR и получить GitHub Checks невозможно.
-Ветки отправлены на GitHub; для них доступны ссылки создания PR.
+Поэтому серверные PR автоматически не создавались. Ветки отправлены на GitHub;
+для них доступны ссылки создания PR. GitHub Actions запускается на push: последний
+проверенный workflow feature-ветки завершился успешно для Python 3.10 и 3.12.
 
 Ни одна ветка не должна сливаться в `main` до account-gated ручной проверки MAX.
 
@@ -27,6 +28,17 @@
 | `feature/durable-outbox` | Восстановление pending queue | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/durable-outbox) |
 | `feature/bridge-runtime` | Оркестрация pipeline | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/bridge-runtime) |
 | `feature/cli-logging` | CLI, сигналы и безопасные логи | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/cli-logging) |
+| `docs/readme-operations` | Руководство запуска и systemd unit | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/docs/readme-operations) |
+| `feature/privacy-state` | Очистка доставленного содержимого | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/privacy-state) |
+| `feature/protocol-safety` | Лимиты бинарных frame и decompression | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/protocol-safety) |
+| `feature/python310-compat` | Совместимость с Python 3.10 | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/python310-compat) |
+| `chore/package-metadata` | Метаданные wheel и sdist | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/chore/package-metadata) |
+| `feature/telegram-validation` | Безопасные проверки getMe/getChat | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/telegram-validation) |
+| `feature/session-maintenance` | Атомарное обновление MAX token | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/session-maintenance) |
+| `feature/observability` | Счётчики состояния без содержимого | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/observability) |
+| `feature/single-instance-lock` | Межпроцессная блокировка outbox | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/feature/single-instance-lock) |
+| `test/protocol-fuzz` | Воспроизводимые fuzz/property проверки | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/test/protocol-fuzz) |
+| `chore/ci-node24` | SHA-pinned GitHub Actions на Node 24 | [Открыть форму PR](https://github.com/RAMMLS/MaxToTelegramMessages/pull/new/chore/ci-node24) |
 
 Ветки основаны на последовательных снимках `integration/nightly`, поэтому PR в
 `main` являются логически stacked. Перед открытием/слиянием нужно выбрать один из
@@ -36,7 +48,16 @@
 2. Провести account-gated проверку интеграционной ветки и открыть один release PR
    `integration/nightly -> main`, сохранив feature-ветки как историю ревью.
 
-Второй вариант практичнее для текущего состояния.
+Второй вариант практичнее для текущего состояния. Серверные PR ещё не созданы:
+наличие feature-ветки и зелёного push workflow не следует считать PR review.
+
+## Проверенный CI
+
+- `chore/ci-node24` — [успешный запуск GitHub Actions](https://github.com/RAMMLS/MaxToTelegramMessages/actions/runs/32539777019), Python 3.10/3.12;
+- actions закреплены полными commit SHA и используют Node 24;
+- push интеграционной ветки после каждого merge запускает тот же workflow;
+- live-тест публичного MAX WebSocket помечен `live` и намеренно не запускается в
+  GitHub Actions, чтобы CI не зависел от внешнего неофициального endpoint.
 
 ## Обязательная проверка перед release PR
 

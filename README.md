@@ -1,5 +1,7 @@
 # MAX → Telegram bridge
 
+[![CI](https://github.com/RAMMLS/MaxToTelegramMessages/actions/workflows/ci.yml/badge.svg?branch=integration%2Fnightly)](https://github.com/RAMMLS/MaxToTelegramMessages/actions/workflows/ci.yml?query=branch%3Aintegration%2Fnightly)
+
 Асинхронный Python-мост для личного использования: читает входящие сообщения
 авторизованной веб-сессии MAX и отправляет уведомления в заданный Telegram-чат.
 
@@ -27,6 +29,9 @@
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
 - тесты, Ruff и GitHub Actions для Python 3.10 и 3.12.
+
+Текущий проверяемый код находится в `integration/nightly`. `main` намеренно не
+обновляется до ручного account-gated теста с реальным MAX-профилем и review PR.
 
 Исследование также подтвердило существование официального MAX Bot API. Если
 сообщения могут приходить непосредственно MAX-боту, лучше использовать его.
