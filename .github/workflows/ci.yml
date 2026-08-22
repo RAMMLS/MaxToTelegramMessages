@@ -2,11 +2,6 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
-      - research/**
-      - feature/**
-      - integration/**
   pull_request:
 
 permissions:
@@ -29,7 +24,8 @@ jobs:
       - name: Install
         run: python -m pip install --upgrade pip && python -m pip install -e '.[dev]'
       - name: Ruff
-        run: ruff check .
+        run: ruff format --check . && ruff check .
       - name: Tests
-        run: pytest
-
+        run: pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
+      - name: Package
+        run: python -m build && python -m max_to_telegram --version
