@@ -64,8 +64,8 @@ def build_runtime(
             store=None,
         )
 
-    assert settings.telegram_bot_token is not None
-    assert settings.telegram_chat_id is not None
+    if settings.telegram_bot_token is None or settings.telegram_chat_id is None:
+        raise ConfigError("Telegram credentials are required in delivery mode")
     store = DedupeStore(settings.state_db).open()
     try:
         sender = TelegramSender(
@@ -136,8 +136,8 @@ async def run_runtime(bundle: RuntimeBundle, *, install_signal_handlers: bool = 
 
 
 async def validate_telegram(settings: Settings) -> dict[str, str]:
-    assert settings.telegram_bot_token is not None
-    assert settings.telegram_chat_id is not None
+    if settings.telegram_bot_token is None or settings.telegram_chat_id is None:
+        raise ConfigError("Telegram credentials are required for validation")
     sender = TelegramSender(
         settings.telegram_bot_token,
         settings.telegram_chat_id,

@@ -246,7 +246,8 @@ class DedupeStore:
             ).fetchone()
         except sqlite3.Error as exc:
             raise DedupeError("could not inspect delivery records") from exc
-        assert row is not None
+        if row is None:
+            raise DedupeError("delivery counters query returned no result")
         return OutboxStats(*(int(value or 0) for value in row))
 
     def mark_delivered(

@@ -6,8 +6,15 @@ from dataclasses import dataclass
 import pytest
 
 from max_to_telegram.bridge import BridgeStats
-from max_to_telegram.cli import RuntimeBundle, build_runtime, inspect_state, main, run_runtime
-from max_to_telegram.config import Settings
+from max_to_telegram.cli import (
+    RuntimeBundle,
+    build_runtime,
+    inspect_state,
+    main,
+    run_runtime,
+    validate_telegram,
+)
+from max_to_telegram.config import ConfigError, Settings
 from max_to_telegram.dedupe import OutboxStats
 
 
@@ -103,6 +110,29 @@ def test_builds_discovery_runtime_without_telegram(tmp_path) -> None:
 
     assert bundle.store is None
     assert bundle.bridge.discovery_mode is True
+
+
+def test_build_runtime_rejects_unvalidated_delivery_settings() -> None:
+    settings = Settings(
+        max_viewer_id=123,
+        max_auth_token="m" * 32,
+        max_chat_ids=frozenset({42}),
+    )
+
+    with pytest.raises(ConfigError, match="Telegram credentials"):
+        build_runtime(settings)
+
+
+@pytest.mark.asyncio
+async def test_validate_telegram_rejects_missing_credentials() -> None:
+    settings = Settings(
+        max_viewer_id=123,
+        max_auth_token="m" * 32,
+        max_chat_ids=frozenset({42}),
+    )
+
+    with pytest.raises(ConfigError, match="Telegram credentials"):
+        await validate_telegram(settings)
 
 
 def test_file_session_gets_stable_device_and_refresh_callback(tmp_path) -> None:
