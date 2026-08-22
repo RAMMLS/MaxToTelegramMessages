@@ -29,6 +29,7 @@
 - SQLite checkpoint после каждой принятой Telegram-части длинного сообщения;
 - дедупликация по ревизии MAX-сообщения;
 - opaque SHA-256 dedupe keys без chat/message ID в delivered history;
+- single-instance lock через `flock` на POSIX и `msvcrt` на Windows;
 - Telegram `sendMessage`, безопасный HTML, разбиение длинного текста;
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
@@ -40,7 +41,7 @@
 - MAX session token отправляется на закреплённый `api.oneme.ru`; custom endpoint
   требует явного `MAX_ALLOW_CUSTOM_WS_URL=true`;
 - тесты, Ruff, строгая типизация, dependency audit и GitHub Actions для Python
-  3.10 и 3.12.
+  3.10/3.12 на Linux и Python 3.12 на Windows.
 
 Текущий проверяемый код находится в `integration/nightly`. `main` намеренно не
 обновляется до ручного account-gated теста с реальным MAX-профилем и review PR.
@@ -55,7 +56,8 @@
 - Python 3.10+;
 - существующий профиль и авторизованная web-сессия MAX;
 - Telegram-бот и целевой Telegram `chat_id`;
-- Linux, macOS или другая ОС с поддержкой Python-зависимостей проекта.
+- Linux, macOS или Windows с поддержкой Python-зависимостей проекта. На Windows
+  пакет автоматически устанавливает IANA timezone-базу `tzdata`.
 
 ## Быстрый старт
 
@@ -322,8 +324,9 @@ Git.
 После доставки SQLite сохраняет только opaque digest ревизии и Telegram message
 IDs; MAX chat/message IDs из dedupe key восстановить нельзя.
 
-Рядом со state DB создаётся пустой process-lock. Он не содержит данных и не
-удаляется после остановки, но OS-lock освобождается автоматически. Одновременно
+Рядом со state DB создаётся process-lock без пользовательских данных (на Windows
+он содержит один служебный байт). Он не удаляется после остановки, но OS-lock
+освобождается автоматически. Одновременно
 может работать только один экземпляр моста с данным `BRIDGE_STATE_DB`, иначе
 второй процесс завершится до доставки и не создаст дубли.
 

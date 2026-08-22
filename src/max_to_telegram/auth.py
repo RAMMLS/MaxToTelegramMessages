@@ -13,7 +13,11 @@ from pathlib import Path
 from typing import Any
 
 from max_to_telegram.config import Settings
-from max_to_telegram.safe_files import PrivateFileError, read_private_text
+from max_to_telegram.safe_files import (
+    PrivateFileError,
+    enforce_private_fd_permissions,
+    read_private_text,
+)
 
 
 class AuthError(ValueError):
@@ -135,8 +139,7 @@ def save_session_file(path: Path, session: LocalMaxSession) -> None:
             dir=path.parent,
             text=True,
         )
-        if os.name == "posix":
-            os.fchmod(descriptor, 0o600)
+        enforce_private_fd_permissions(descriptor)
         with os.fdopen(descriptor, "w", encoding="utf-8") as stream:
             descriptor = -1
             stream.write(encoded)

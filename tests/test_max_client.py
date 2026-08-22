@@ -44,10 +44,21 @@ class FakeWebSocket:
         return self.incoming.popleft()
 
 
+class SignalingWebSocket(FakeWebSocket):
+    def __init__(self, incoming: list[bytes | str]) -> None:
+        super().__init__(incoming)
+        self.message_sent = asyncio.Event()
+
+    async def send(self, message: bytes) -> None:
+        await super().send(message)
+        self.message_sent.set()
+
+
 class KeepaliveFailingWebSocket(FakeWebSocket):
     def __init__(self, incoming: list[bytes | str]) -> None:
         super().__init__(incoming)
         self.wait_forever = asyncio.Event()
+        self.receive_started = asyncio.Event()
         self.receive_cancelled = False
 
     async def send(self, message: bytes) -> None:
@@ -57,6 +68,7 @@ class KeepaliveFailingWebSocket(FakeWebSocket):
 
     async def __anext__(self) -> bytes | str:
         try:
+            self.receive_started.set()
             await self.wait_forever.wait()
             raise StopAsyncIteration
         except asyncio.CancelledError:
@@ -477,7 +489,7 @@ def test_reconnect_delay_is_capped_and_jittered() -> None:
 @pytest.mark.asyncio
 async def test_keepalive_sends_application_ping() -> None:
     codec = FrameCodec()
-    websocket = FakeWebSocket([])
+    websocket = SignalingWebSocket([])
     client = MaxClient(
         settings(),
         MaxCredentials(123, "a" * 32),
@@ -485,7 +497,7 @@ async def test_keepalive_sends_application_ping() -> None:
     )
 
     task = asyncio.create_task(client._keepalive(websocket, asyncio.Lock()))
-    await asyncio.sleep(0.005)
+    await asyncio.wait_for(websocket.message_sent.wait(), timeout=1)
     client.stop()
     await task
 
@@ -520,7 +532,7 @@ async def test_listener_cancellation_cleans_up_blocked_receive() -> None:
         keepalive_interval=3_600,
     )
     listener = asyncio.create_task(anext(client._connected_events()))
-    await asyncio.sleep(0.001)
+    await asyncio.wait_for(websocket.receive_started.wait(), timeout=1)
 
     listener.cancel()
     with pytest.raises(asyncio.CancelledError):
