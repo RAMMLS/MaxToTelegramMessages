@@ -43,6 +43,21 @@ class FakeWebSocket:
         return self.incoming.popleft()
 
 
+class KeepaliveFailingWebSocket(FakeWebSocket):
+    def __init__(self, incoming: list[bytes | str]) -> None:
+        super().__init__(incoming)
+        self.wait_forever = asyncio.Event()
+
+    async def send(self, message: bytes) -> None:
+        if len(self.sent) >= 2:
+            raise OSError("keepalive send failed")
+        await super().send(message)
+
+    async def __anext__(self) -> bytes | str:
+        await self.wait_forever.wait()
+        raise StopAsyncIteration
+
+
 class FakeConnection:
     def __init__(self, websocket: FakeWebSocket) -> None:
         self.websocket = websocket
@@ -415,6 +430,21 @@ async def test_keepalive_sends_application_ping() -> None:
 
     sent = [codec.decode(item) for item in websocket.sent]
     assert any(frame.opcode == OPCODE_KEEPALIVE and frame.cmd == 0 for frame in sent)
+
+
+@pytest.mark.asyncio
+async def test_keepalive_send_failure_interrupts_blocked_receive() -> None:
+    codec = FrameCodec()
+    websocket = KeepaliveFailingWebSocket(login_success(codec))
+    client = MaxClient(
+        settings(),
+        MaxCredentials(123, "a" * 32),
+        connector=FakeConnector(websocket),
+        keepalive_interval=0.001,
+    )
+
+    with pytest.raises(OSError, match="keepalive send failed"):
+        await asyncio.wait_for(anext(client._connected_events()), timeout=0.2)
 
 
 @pytest.mark.asyncio

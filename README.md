@@ -20,6 +20,7 @@
 - импорт существующей MAX web-сессии из `.env` или защищённого JSON-файла;
 - бинарный protocol v10: MessagePack, LZ4, 10-байтовый заголовок;
 - WebSocket init/login, ping/ack, reconnect с exponential backoff и jitter;
+- немедленный reconnect при отказе фонового application keepalive;
 - парсер входящих сообщений, edits и вложений;
 - точный allowlist числовых `chatId`;
 - discovery-режим, который показывает встреченные чаты и не обращается к Telegram;
