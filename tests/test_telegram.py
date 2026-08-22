@@ -214,6 +214,52 @@ async def test_sends_all_long_message_chunks() -> None:
     assert len(session.requests) == len(expected_chunks)
 
 
+@pytest.mark.asyncio
+async def test_validates_bot_and_destination_without_sending_message() -> None:
+    session = FakeSession(
+        FakeResponse(200, {"ok": True, "result": {"id": 1, "username": "bridge_bot"}}),
+        FakeResponse(
+            200,
+            {
+                "ok": True,
+                "result": {"id": 42, "type": "private", "first_name": "Ada"},
+            },
+        ),
+    )
+    sender = TelegramSender("token-1234567890123456", "42", session=session)
+
+    result = await sender.validate()
+
+    assert result.bot_username == "bridge_bot"
+    assert result.chat_type == "private"
+    assert result.chat_title == "Ada"
+    assert [request[0].rsplit("/", 1)[-1] for request in session.requests] == ["getMe", "getChat"]
+    assert all(request[1]["json"].get("text") is None for request in session.requests)
+
+
+@pytest.mark.asyncio
+async def test_validation_prefers_group_title() -> None:
+    session = FakeSession(
+        FakeResponse(200, {"ok": True, "result": {"username": "bridge_bot"}}),
+        FakeResponse(200, {"ok": True, "result": {"type": "group", "title": "Selected"}}),
+    )
+    sender = TelegramSender("token-1234567890123456", "-42", session=session)
+
+    assert (await sender.validate()).chat_title == "Selected"
+
+
+@pytest.mark.asyncio
+async def test_validation_rejects_malformed_success_response() -> None:
+    session = FakeSession(
+        FakeResponse(200, {"ok": True, "result": {"id": 1}}),
+        FakeResponse(200, {"ok": True, "result": {"type": "private"}}),
+    )
+    sender = TelegramSender("token-1234567890123456", "42", session=session)
+
+    with pytest.raises(TelegramPermanentError, match="username"):
+        await sender.validate()
+
+
 @pytest.mark.parametrize(
     ("token", "chat_id", "message"),
     [

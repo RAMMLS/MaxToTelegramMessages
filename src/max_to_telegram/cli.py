@@ -8,7 +8,7 @@ import json
 import logging
 import signal
 import sys
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from importlib.metadata import PackageNotFoundError, version
 
 from max_to_telegram.auth import AuthError, load_credentials
@@ -117,6 +117,20 @@ async def run_runtime(bundle: RuntimeBundle, *, install_signal_handlers: bool = 
                     bundle.store.close()
 
 
+async def validate_telegram(settings: Settings) -> dict[str, str]:
+    assert settings.telegram_bot_token is not None
+    assert settings.telegram_chat_id is not None
+    sender = TelegramSender(
+        settings.telegram_bot_token,
+        settings.telegram_chat_id,
+        max_retries=settings.telegram_max_retries,
+    )
+    try:
+        return asdict(await sender.validate())
+    finally:
+        await sender.close()
+
+
 def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="max-to-telegram",
@@ -126,6 +140,11 @@ def _parser() -> argparse.ArgumentParser:
         "--check-config",
         action="store_true",
         help="validate local configuration without opening network connections",
+    )
+    parser.add_argument(
+        "--check-telegram",
+        action="store_true",
+        help="call getMe/getChat without sending a message",
     )
     parser.add_argument("--version", action="store_true", help="print version and exit")
     return parser
@@ -155,6 +174,10 @@ def main(argv: list[str] | None = None) -> int:
             summary = settings.safe_summary()
             summary["max_viewer_id"] = credentials.viewer_id
             print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.check_telegram:
+            result = asyncio.run(validate_telegram(settings))
+            print(json.dumps(result, ensure_ascii=False, sort_keys=True))
             return 0
 
         logger.info("Starting MAX-to-Telegram bridge: %s", settings.safe_summary())

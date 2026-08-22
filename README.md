@@ -65,6 +65,13 @@ chmod 600 .env
 max-to-telegram --check-config
 ```
 
+После настройки Telegram можно проверить bot token и доступ к целевому чату без
+отправки сообщения:
+
+```bash
+max-to-telegram --check-telegram
+```
+
 Запуск:
 
 ```bash
