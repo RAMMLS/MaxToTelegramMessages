@@ -34,6 +34,8 @@
 - bounded queue/retry/reconnect settings и безопасный backoff при долгом outage;
 - permanent MAX command errors останавливают процесс без retry storm;
 - абсолютный deadline init/login не продлевается посторонними frames;
+- MAX session token отправляется на закреплённый `api.oneme.ru`; custom endpoint
+  требует явного `MAX_ALLOW_CUSTOM_WS_URL=true`;
 - тесты, Ruff, строгая типизация, dependency audit и GitHub Actions для Python
   3.10 и 3.12.
 
@@ -256,6 +258,7 @@ MAX_AUTH_TOKEN=replace-with-max-token
 MAX_DEVICE_ID=123e4567-e89b-12d3-a456-426614174000
 
 MAX_WS_URL=wss://api.oneme.ru/websocket
+MAX_ALLOW_CUSTOM_WS_URL=false
 MAX_APP_VERSION=26.8.8
 MAX_LOCALE=ru
 MAX_CHAT_IDS=111111111,-222222222
