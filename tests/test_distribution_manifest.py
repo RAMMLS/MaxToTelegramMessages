@@ -11,6 +11,7 @@ def test_source_manifest_includes_audit_and_operations_materials() -> None:
         "CONTRIBUTING.md",
         "DEVELOPMENT.md",
         "include .env.example",
+        "MANUAL_TEST.md",
         "RESEARCH.md",
         "SECURITY.md",
         "recursive-include deploy *.service",

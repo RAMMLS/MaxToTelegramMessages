@@ -3,6 +3,7 @@ include CONTRIBUTING.md
 include DEVELOPMENT.md
 include .env.example
 include LICENSE
+include MANUAL_TEST.md
 include README.md
 include RESEARCH.md
 include SECURITY.md

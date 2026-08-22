@@ -319,8 +319,9 @@ BRIDGE_STATE_DB=/var/lib/max-to-telegram/state.sqlite3
 - пересылается текст и ярлык вложения, но не бинарный файл;
 - одна конфигурация отправляет все выбранные MAX-чаты в один Telegram-чат.
 
-План обязательной ручной проверки перечислен в [RESEARCH.md](RESEARCH.md). История
-веток и статус PR находятся в [DEVELOPMENT.md](DEVELOPMENT.md).
+План обязательной ручной проверки оформлен в
+[`MANUAL_TEST.md`](MANUAL_TEST.md). История веток и статус PR находятся в
+[`DEVELOPMENT.md`](DEVELOPMENT.md).
 
 ## Безопасность
 
