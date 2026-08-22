@@ -91,6 +91,14 @@ def test_rejects_invalid_chat_ids(chat_ids: str) -> None:
         Settings.from_env(complete_env(MAX_CHAT_IDS=chat_ids))
 
 
+def test_invalid_chat_id_error_does_not_echo_supplied_value() -> None:
+    suspicious = "private-value-that-must-not-reach-journal"
+    with pytest.raises(ConfigError) as raised:
+        Settings.from_env(complete_env(MAX_CHAT_IDS=suspicious))
+
+    assert suspicious not in str(raised.value)
+
+
 def test_requires_complete_direct_auth_pair() -> None:
     with pytest.raises(ConfigError, match="MAX_VIEWER_ID and MAX_AUTH_TOKEN"):
         Settings.from_env(

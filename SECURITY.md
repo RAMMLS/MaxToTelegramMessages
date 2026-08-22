@@ -37,3 +37,4 @@
 - state/session/env файлы исключены из Git.
 - CI без вывода совпадения блокирует Telegram-token-shaped значения и tracked `.env`;
   перед release вся история дополнительно проверяется Gitleaks.
+- ошибки конфигурации/outbox не повторяют supplied chat values и record keys.
