@@ -250,9 +250,9 @@ class DedupeStore:
                 try:
                     message = _deserialize_message(str(payload))
                 except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                    raise DedupeError(f"pending delivery record is corrupt: {key!r}") from exc
+                    raise DedupeError("a pending delivery record is corrupt") from exc
                 if message.dedupe_key != key:
-                    raise DedupeError(f"pending delivery key does not match its payload: {key!r}")
+                    raise DedupeError("a pending delivery key does not match its payload")
                 yield message
 
     def stats(self) -> OutboxStats:

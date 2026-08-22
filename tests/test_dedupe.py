@@ -184,8 +184,10 @@ def test_corrupt_outbox_payload_fails_closed(tmp_path):
         )
         connection.commit()
 
-    with DedupeStore(path) as reopened, pytest.raises(DedupeError, match="corrupt"):
+    with DedupeStore(path) as reopened, pytest.raises(DedupeError, match="corrupt") as raised:
         reopened.pending_messages()
+
+    assert message.dedupe_key not in str(raised.value)
 
 
 def test_mismatched_outbox_key_fails_closed(tmp_path):
@@ -201,8 +203,13 @@ def test_mismatched_outbox_key_fails_closed(tmp_path):
         )
         connection.commit()
 
-    with DedupeStore(path) as reopened, pytest.raises(DedupeError, match="does not match"):
+    with (
+        DedupeStore(path) as reopened,
+        pytest.raises(DedupeError, match="does not match") as raised,
+    ):
         reopened.pending_messages()
+
+    assert "different" not in str(raised.value)
 
 
 def test_legacy_database_gets_outbox_column(tmp_path):

@@ -88,7 +88,7 @@ def _parse_chat_ids(raw: str | None) -> frozenset[int]:
         try:
             chat_id = int(value)
         except ValueError as exc:
-            raise ConfigError(f"MAX_CHAT_IDS contains a non-numeric value: {value!r}") from exc
+            raise ConfigError("MAX_CHAT_IDS contains a non-numeric value") from exc
         if chat_id == 0:
             raise ConfigError("MAX_CHAT_IDS must not contain 0")
         result.add(chat_id)
