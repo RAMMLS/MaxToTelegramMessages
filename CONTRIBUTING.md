@@ -20,6 +20,8 @@
 python -m pip install -e '.[dev]'
 ruff format --check .
 ruff check .
+mypy
+pip-audit --strict --progress-spinner=off .
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
 python -m build
 git diff --check

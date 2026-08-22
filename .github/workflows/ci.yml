@@ -33,3 +33,6 @@ jobs:
         run: pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
       - name: Package
         run: python -m build && python -m max_to_telegram --version
+      - name: Dependency audit
+        if: matrix.python-version == '3.12'
+        run: pip-audit --strict --progress-spinner=off .

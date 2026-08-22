@@ -69,6 +69,7 @@ python -m pip install -e '.[dev]'
 ruff format --check .
 ruff check .
 mypy
+pip-audit --strict --progress-spinner=off .
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
 RUN_LIVE_MAX_RESEARCH=1 pytest -m live tests/test_live_handshake.py -v
 git diff --check
