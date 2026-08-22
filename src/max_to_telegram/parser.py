@@ -43,6 +43,8 @@ _ATTACHMENT_LABELS = {
 _REMOVED_STATUSES = frozenset({"REMOVED", "SPAM", "DELAYED_FIRE_ERROR"})
 _MAX_ATTACHMENTS = 100
 _MAX_ATTACHMENT_TYPE_CHARS = 64
+_MAX_DISPLAY_INPUT_CHARS = 4_096
+_MAX_MESSAGE_ID_INPUT_CHARS = 512
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 
@@ -188,6 +190,8 @@ def _message_id(value: Any) -> str:
         raise MessageParseError("message.id is required")
     if not isinstance(value, (int, str)):
         raise MessageParseError("message.id must be an integer or string")
+    if isinstance(value, str) and len(value) > _MAX_MESSAGE_ID_INPUT_CHARS:
+        raise MessageParseError("message.id has an invalid value")
     result = str(value).strip()
     if not result or len(result) > 256:
         raise MessageParseError("message.id has an invalid value")
@@ -226,12 +230,15 @@ def _parse_attachments(value: Any) -> tuple[tuple[str, ...], bool]:
             labels.append("Вложение")
             continue
         raw_type = attachment.get("_type", attachment.get("type"))
-        if not isinstance(raw_type, str) or not raw_type.strip():
+        if not isinstance(raw_type, str):
             labels.append("Вложение")
             continue
-        attachment_type = raw_type.strip().upper()
-        if len(attachment_type) > _MAX_ATTACHMENT_TYPE_CHARS:
+        if len(raw_type) > _MAX_ATTACHMENT_TYPE_CHARS:
             raise MessageParseError("message attachment type is too long")
+        attachment_type = raw_type.strip().upper()
+        if not attachment_type:
+            labels.append("Вложение")
+            continue
         if attachment_type == "CONTROL":
             is_service = True
             continue
@@ -258,9 +265,9 @@ def _name_candidate(value: Any) -> str:
             if candidate:
                 return candidate
     parts = [value.get("firstName"), value.get("lastName")]
-    return _clean_display(" ".join(part for part in parts if isinstance(part, str)))
+    return _clean_display(" ".join(_clean_display(part) for part in parts if isinstance(part, str)))
 
 
 def _clean_display(value: str) -> str:
-    cleaned = " ".join(value.split())
+    cleaned = " ".join(value[:_MAX_DISPLAY_INPUT_CHARS].split())
     return cleaned[:256]

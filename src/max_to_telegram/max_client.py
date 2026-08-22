@@ -405,7 +405,8 @@ class MaxClient:
 def _safe_server_text(value: Any, *, fallback: str, maximum: int, secret: str) -> str:
     if not isinstance(value, (str, int)) or isinstance(value, bool):
         return fallback
-    rendered = " ".join(str(value).split()).replace(secret, "<redacted>")
+    input_limit = maximum + len(secret) + 256
+    rendered = " ".join(str(value)[:input_limit].split()).replace(secret, "<redacted>")
     return rendered[:maximum] or fallback
 
 

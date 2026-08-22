@@ -294,6 +294,35 @@ async def test_validation_prefers_group_title() -> None:
 
 
 @pytest.mark.asyncio
+async def test_bounds_and_normalizes_validation_metadata() -> None:
+    session = FakeSession(
+        FakeResponse(
+            200,
+            {"ok": True, "result": {"username": " bridge_bot " + "x" * 10_000}},
+        ),
+        FakeResponse(
+            200,
+            {
+                "ok": True,
+                "result": {
+                    "type": " private\n" + "y" * 10_000,
+                    "title": " Selected\t" + "z" * 10_000,
+                },
+            },
+        ),
+    )
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
+
+    result = await sender.validate()
+
+    assert len(result.bot_username) == 256
+    assert len(result.chat_type) == 64
+    assert len(result.chat_title) == 256
+    assert "\n" not in result.chat_type
+    assert "\t" not in result.chat_title
+
+
+@pytest.mark.asyncio
 async def test_discovers_unique_chat_ids_without_reading_message_content() -> None:
     session = FakeSession(
         FakeResponse(
@@ -322,6 +351,10 @@ async def test_discovers_unique_chat_ids_without_reading_message_content() -> No
                         },
                     },
                     {"update_id": 4, "message": {"chat": {"id": "bad", "type": "group"}}},
+                    {
+                        "update_id": 5,
+                        "message": {"chat": {"id": 2**63, "type": "private"}},
+                    },
                 ],
             },
         )

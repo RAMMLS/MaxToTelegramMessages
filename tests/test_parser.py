@@ -181,6 +181,22 @@ def test_normalizes_whitespace_in_display_names() -> None:
     assert message.chat_title == "Project Room"
 
 
+def test_bounds_display_name_work_before_normalization() -> None:
+    huge_name = "Grace " + "x" * 1_000_000
+    payload = text_payload(senderName=huge_name)
+    payload["chat"] = {"title": "Team " + "y" * 1_000_000}
+
+    message = MessageParser(viewer_id=123).parse(push(payload))
+
+    assert len(message.sender_name) == 256
+    assert len(message.chat_title) == 256
+
+
+def test_rejects_oversized_string_message_id_before_normalization() -> None:
+    with pytest.raises(MessageParseError, match=r"message\.id"):
+        MessageParser(viewer_id=123).parse(push(text_payload(id=" " * 1_000_000 + "1")))
+
+
 @pytest.mark.parametrize(
     ("attaches", "error"),
     [

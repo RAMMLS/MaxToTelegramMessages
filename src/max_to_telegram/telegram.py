@@ -101,14 +101,20 @@ class TelegramSender:
         chat_document = await self._call("getChat", {"chat_id": self.chat_id})
         bot = bot_document.get("result") if isinstance(bot_document, dict) else None
         chat = chat_document.get("result") if isinstance(chat_document, dict) else None
-        if not isinstance(bot, dict) or not isinstance(bot.get("username"), str):
+        if not isinstance(bot, dict):
             raise TelegramPermanentError("Telegram getMe response has no bot username")
-        if not isinstance(chat, dict) or not isinstance(chat.get("type"), str):
+        username = _bounded_metadata(bot.get("username"), maximum=256)
+        if not username:
+            raise TelegramPermanentError("Telegram getMe response has no bot username")
+        if not isinstance(chat, dict):
+            raise TelegramPermanentError("Telegram getChat response has no chat metadata")
+        chat_type = _bounded_metadata(chat.get("type"), maximum=64)
+        if not chat_type:
             raise TelegramPermanentError("Telegram getChat response has no chat metadata")
         title = _chat_title(chat)
         return TelegramValidation(
-            bot_username=bot["username"],
-            chat_type=chat["type"],
+            bot_username=username,
+            chat_type=chat_type,
             chat_title=title,
         )
 
@@ -132,13 +138,18 @@ class TelegramSender:
                 continue
             chat_id = chat.get("id")
             chat_type = chat.get("type")
-            if isinstance(chat_id, bool) or not isinstance(chat_id, int):
+            if (
+                isinstance(chat_id, bool)
+                or not isinstance(chat_id, int)
+                or not -(2**63) <= chat_id <= 2**63 - 1
+            ):
                 continue
-            if not isinstance(chat_type, str) or not chat_type.strip():
+            safe_chat_type = _bounded_metadata(chat_type, maximum=64)
+            if not safe_chat_type:
                 continue
             discovered[chat_id] = TelegramDiscoveredChat(
                 chat_id=chat_id,
-                chat_type=chat_type.strip()[:64],
+                chat_type=safe_chat_type,
                 chat_title=_chat_title(chat),
             )
         return tuple(discovered.values())
@@ -292,7 +303,8 @@ def _safe_description(document: Any, token: str) -> str:
     description = document.get("description")
     if not isinstance(description, str):
         return "unknown Telegram error"
-    rendered = " ".join(description.replace(token, "<redacted>").split())
+    input_limit = 500 + len(token) + 256
+    rendered = " ".join(description[:input_limit].replace(token, "<redacted>").split())
     return rendered[:500] or "unknown Telegram error"
 
 
@@ -309,14 +321,19 @@ def _safe_error_code(document: Any, response_status: int) -> int:
 
 def _chat_title(chat: dict[str, Any]) -> str:
     for key in ("title", "username"):
-        value = chat.get(key)
-        if isinstance(value, str) and value.strip():
-            return value.strip()[:256]
+        value = _bounded_metadata(chat.get(key), maximum=256)
+        if value:
+            return value
     names = [chat.get("first_name"), chat.get("last_name")]
-    rendered = " ".join(
-        value.strip() for value in names if isinstance(value, str) and value.strip()
-    )
+    rendered = " ".join(value for raw in names if (value := _bounded_metadata(raw, maximum=128)))
     return rendered[:256] or "(без названия)"
+
+
+def _bounded_metadata(value: Any, *, maximum: int) -> str:
+    if not isinstance(value, str):
+        return ""
+    input_limit = maximum + 256
+    return " ".join(value[:input_limit].split())[:maximum]
 
 
 def _update_chat(update: Any) -> dict[str, Any] | None:
