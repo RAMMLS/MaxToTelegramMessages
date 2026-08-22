@@ -2,8 +2,7 @@
 
 ## Supported version
 
-До первого проверенного релиза security fixes применяются к ветке
-`integration/nightly`. `main` пока не содержит рабочую интеграцию.
+Security fixes применяются к выпущенной ветке `main`.
 
 ## Сообщение об уязвимости
 

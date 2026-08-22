@@ -14,7 +14,7 @@ def test_source_manifest_includes_audit_and_operations_materials() -> None:
         "MANUAL_TEST.md",
         "RESEARCH.md",
         "SECURITY.md",
-        "recursive-include deploy *.service",
+        "recursive-include deploy *.example *.md *.service *.sh",
         "recursive-include tests *.py",
     ):
         assert required in manifest

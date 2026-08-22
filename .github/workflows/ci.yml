@@ -54,6 +54,10 @@ jobs:
         run: ruff format --check . && ruff check .
       - name: Mypy
         run: mypy
+      - name: Deployment shell syntax
+        if: runner.os == 'Linux'
+        shell: bash
+        run: sh -n deploy/alwaysdata/bootstrap.sh
       - name: Tests
         shell: bash
         run: |

@@ -1,6 +1,6 @@
 # MAX → Telegram bridge
 
-[![CI](https://github.com/RAMMLS/MaxToTelegramMessages/actions/workflows/ci.yml/badge.svg?branch=integration%2Fnightly)](https://github.com/RAMMLS/MaxToTelegramMessages/actions/workflows/ci.yml?query=branch%3Aintegration%2Fnightly)
+[![CI](https://github.com/RAMMLS/MaxToTelegramMessages/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/RAMMLS/MaxToTelegramMessages/actions/workflows/ci.yml?query=branch%3Amain)
 
 Асинхронный Python-мост для личного использования: читает входящие сообщения
 авторизованной веб-сессии MAX и отправляет уведомления в заданный Telegram-чат.
@@ -10,10 +10,10 @@
 обычный режим с ошибкой конфигурации.
 
 > [!WARNING]
-> MAX WebSocket API неофициальный. Реальный login и входящий message push пока
-> не проверены end-to-end, потому что для исследования не было профиля MAX.
-> Подтверждены публичный handshake, бинарный протокол и QR-сессия; login и
-> opcode сообщения восстановлены из актуального web bundle. См. [RESEARCH.md](RESEARCH.md).
+> MAX WebSocket API неофициальный. Реальный login и входящий opcode `128`
+> подтверждены с импортированной web-сессией, но полный маршрут первого нового
+> поста выбранного канала в Telegram всё ещё требует ручной проверки. См.
+> [RESEARCH.md](RESEARCH.md) и [MANUAL_TEST.md](MANUAL_TEST.md).
 
 ## Что реализовано
 
@@ -43,8 +43,8 @@
 - тесты, Ruff, строгая типизация, dependency audit и GitHub Actions для Python
   3.10/3.12 на Linux и Python 3.12 на Windows.
 
-Текущий проверяемый код находится в `integration/nightly`. `main` намеренно не
-обновляется до ручного account-gated теста с реальным MAX-профилем и review PR.
+Проверенный bridge выпущен в `main`. Перед постоянным запуском всё равно нужен
+ручной account-gated тест выбранного MAX-канала и ротация раскрытых credentials.
 
 Исследование также подтвердило существование официального MAX Bot API. Если
 сообщения могут приходить непосредственно MAX-боту, лучше использовать его.
@@ -64,7 +64,6 @@
 ```bash
 git clone git@github.com:RAMMLS/MaxToTelegramMessages.git
 cd MaxToTelegramMessages
-git switch integration/nightly
 
 python3 -m venv .venv
 source .venv/bin/activate
@@ -78,9 +77,6 @@ chmod 600 .env
 Автозагрузка рассматривает только `.env` в текущем каталоге и не ищет файл в
 родительских директориях. Поэтому запускайте CLI из каталога проекта либо
 задавайте process environment/systemd `EnvironmentFile` явно.
-
-`main` намеренно содержит только проверенный начальный commit. До account-gated
-проверки рабочая сборка находится в `integration/nightly`.
 
 Заполните `.env`, затем проверьте его без сетевых соединений:
 
@@ -394,9 +390,22 @@ SIGINT/SIGTERM сначала останавливает MAX listener и даё�
 зафиксированные как delivered записи остаются pending и поднимаются при следующем
 старте. Второй сигнал отменяет grace period немедленно.
 
+## Бесплатный 24/7-хостинг на alwaysdata
+
+Для личного low-traffic bridge можно использовать alwaysdata Free Public Cloud:
+custom service работает в foreground, автоматически перезапускается, а файлы
+сессии и SQLite остаются в persistent home directory. Готовые bootstrap,
+безопасный env-шаблон и пошаговая настройка находятся в
+[`deploy/alwaysdata/README.md`](deploy/alwaysdata/README.md).
+
+Перед передачей конфигурации на хостинг обязательно перевыпустите MAX session и
+Telegram bot token, если они появлялись в чате или логах. Секреты загружаются
+только в ignored-файлы `.env` и `data/max-session.json`, не в Git и не в команду
+alwaysdata service.
+
 ## Ограничения текущей версии
 
-- нет account-gated end-to-end теста без профиля MAX;
+- нет полного end-to-end нового поста выбранного MAX-канала в Telegram;
 - реальные поля разных типов MAX-чатов и вложений требуют capture;
 - изменения приватного web protocol могут потребовать обновления codec/client;
 - пересылается текст и ярлык вложения, но не бинарный файл;
