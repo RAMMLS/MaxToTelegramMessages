@@ -56,7 +56,8 @@
 - Python 3.10+;
 - существующий профиль и авторизованная web-сессия MAX;
 - Telegram-бот и целевой Telegram `chat_id`;
-- Linux, macOS или другая ОС с поддержкой Python-зависимостей проекта.
+- Linux, macOS или Windows с поддержкой Python-зависимостей проекта. На Windows
+  пакет автоматически устанавливает IANA timezone-базу `tzdata`.
 
 ## Быстрый старт
 

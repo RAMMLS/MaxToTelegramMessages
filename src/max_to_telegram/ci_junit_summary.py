@@ -34,7 +34,8 @@ def render_annotations(report: Path) -> list[str]:
         title = _escape(f"Pytest: {suite}.{name}")[:200]
         raw_message = outcome.get("message") or outcome.text or "test failed"
         message = _TOKEN_PATTERN.sub("<redacted>", " ".join(raw_message.split()))
-        rendered.append(f"::error title={title}::{_escape(message)[:_MAX_MESSAGE_CHARS]}")
+        detail = _escape(f"{suite}.{name}: {message}")[:_MAX_MESSAGE_CHARS]
+        rendered.append(f"::error title={title}::{detail}")
         if len(rendered) >= _MAX_ANNOTATIONS:
             break
     if not rendered:

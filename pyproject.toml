@@ -28,6 +28,7 @@ dependencies = [
   "lz4>=4.3,<5",
   "msgpack>=1.0,<2",
   "python-dotenv>=1.0,<2",
+  "tzdata>=2024.1,<2027; platform_system == 'Windows'",
   "websockets>=13,<16",
 ]
 

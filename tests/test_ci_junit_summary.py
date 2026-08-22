@@ -20,7 +20,8 @@ def test_emits_bounded_redacted_failure_annotation(tmp_path: Path) -> None:
     result = render_annotations(report)
 
     assert result == [
-        "::error title=Pytest: tests.test_lock.test_second::token <redacted> denied%25now"
+        "::error title=Pytest: tests.test_lock.test_second::"
+        "tests.test_lock.test_second: token <redacted> denied%25now"
     ]
 
 
