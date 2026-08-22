@@ -28,7 +28,8 @@
 - Telegram `sendMessage`, безопасный HTML, разбиение длинного текста;
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
-- тесты, Ruff и GitHub Actions для Python 3.10 и 3.12.
+- тесты, Ruff, строгая типизация, dependency audit и GitHub Actions для Python
+  3.10 и 3.12.
 
 Текущий проверяемый код находится в `integration/nightly`. `main` намеренно не
 обновляется до ручного account-gated теста с реальным MAX-профилем и review PR.
