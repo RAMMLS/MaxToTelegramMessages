@@ -15,7 +15,7 @@ from max_to_telegram.parser import ChatPolicy, MessageParser
 from max_to_telegram.protocol import Frame, FrameCodec
 from max_to_telegram.telegram import TelegramSender
 
-BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+BOT_TOKEN = "12345:TEST_ONLY_NOT_A_REAL_BOT_TOKEN_12345"
 
 
 class FakeWebSocket:

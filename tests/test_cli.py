@@ -17,7 +17,7 @@ from max_to_telegram.cli import (
 from max_to_telegram.config import ConfigError, Settings
 from max_to_telegram.dedupe import OutboxStats
 
-BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+BOT_TOKEN = "12345:TEST_ONLY_NOT_A_REAL_BOT_TOKEN_12345"
 
 
 class FakeBridge:
