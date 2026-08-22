@@ -5,12 +5,18 @@ from __future__ import annotations
 import json
 import os
 import sqlite3
+import stat
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from max_to_telegram.parser import ParsedMessage
+
+try:
+    import fcntl
+except ImportError:  # pragma: no cover - Windows has no fcntl
+    fcntl = None  # type: ignore[assignment]
 
 
 class DedupeError(RuntimeError):
@@ -44,6 +50,7 @@ class DedupeStore:
     def __init__(self, path: Path | str) -> None:
         self.path = Path(path)
         self._connection: sqlite3.Connection | None = None
+        self._lock_descriptor: int | None = None
 
     def open(self) -> DedupeStore:
         if self._connection is not None:
@@ -51,6 +58,7 @@ class DedupeStore:
         if self.path.exists() and not self.path.is_file():
             raise DedupeError("state database path must be a regular file")
         self.path.parent.mkdir(parents=True, exist_ok=True)
+        self._acquire_process_lock()
         connection: sqlite3.Connection | None = None
         try:
             connection = sqlite3.connect(self.path, timeout=10, isolation_level=None)
@@ -79,6 +87,7 @@ class DedupeStore:
         except sqlite3.Error as exc:
             if connection is not None:
                 connection.close()
+            self._release_process_lock()
             raise DedupeError("could not initialize the delivery state database") from exc
         self._connection = connection
         with suppress(OSError):
@@ -86,9 +95,12 @@ class DedupeStore:
         return self
 
     def close(self) -> None:
-        if self._connection is not None:
-            self._connection.close()
-            self._connection = None
+        try:
+            if self._connection is not None:
+                self._connection.close()
+                self._connection = None
+        finally:
+            self._release_process_lock()
 
     def __enter__(self) -> DedupeStore:
         return self.open()
@@ -340,6 +352,47 @@ class DedupeStore:
         if self._connection is None:
             raise DedupeError("delivery state database is not open")
         return self._connection
+
+    def _acquire_process_lock(self) -> None:
+        if fcntl is None or self._lock_descriptor is not None:
+            return
+        lock_path = Path(f"{self.path}.lock")
+        flags = os.O_CREAT | os.O_RDWR
+        if hasattr(os, "O_CLOEXEC"):
+            flags |= os.O_CLOEXEC
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        descriptor = -1
+        try:
+            descriptor = os.open(lock_path, flags, 0o600)
+            if not stat.S_ISREG(os.fstat(descriptor).st_mode):
+                raise DedupeError("state lock path must be a regular file")
+            os.fchmod(descriptor, 0o600)
+            fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError as exc:
+            if descriptor >= 0:
+                with suppress(OSError):
+                    os.close(descriptor)
+            raise DedupeError("state database is already used by another bridge process") from exc
+        except (OSError, DedupeError) as exc:
+            if descriptor >= 0:
+                with suppress(OSError):
+                    os.close(descriptor)
+            if isinstance(exc, DedupeError):
+                raise
+            raise DedupeError("could not acquire the state database process lock") from exc
+        self._lock_descriptor = descriptor
+
+    def _release_process_lock(self) -> None:
+        if self._lock_descriptor is None:
+            return
+        descriptor = self._lock_descriptor
+        self._lock_descriptor = None
+        if fcntl is not None:
+            with suppress(OSError):
+                fcntl.flock(descriptor, fcntl.LOCK_UN)
+        with suppress(OSError):
+            os.close(descriptor)
 
 
 def _validate_key(value: str) -> str:
