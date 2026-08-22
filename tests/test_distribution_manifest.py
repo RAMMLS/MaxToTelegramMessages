@@ -39,3 +39,8 @@ def test_package_installs_timezone_database_on_windows() -> None:
     pyproject = (PROJECT_ROOT / "pyproject.toml").read_text(encoding="utf-8")
 
     assert "tzdata>=2024.1,<2027; platform_system == 'Windows'" in pyproject
+
+
+def test_ci_failure_formatter_is_not_a_runtime_package_module() -> None:
+    assert (PROJECT_ROOT / "tests/ci_junit_summary.py").is_file()
+    assert not (PROJECT_ROOT / "src/max_to_telegram/ci_junit_summary.py").exists()

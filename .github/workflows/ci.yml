@@ -61,7 +61,7 @@ jobs:
           pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85 \
             --junitxml=.pytest-results.xml || test_status=$?
           if (( test_status != 0 )); then
-            python -m max_to_telegram.ci_junit_summary .pytest-results.xml
+            python tests/ci_junit_summary.py .pytest-results.xml
           fi
           exit "$test_status"
       - name: Package
