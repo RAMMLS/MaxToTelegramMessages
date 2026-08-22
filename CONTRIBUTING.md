@@ -21,6 +21,7 @@ python -m pip install -e '.[dev]'
 ruff format --check .
 ruff check .
 mypy
+mypy --platform win32 src
 pip-audit --strict --progress-spinner=off .
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
 python -m build
@@ -35,6 +36,9 @@ RUN_LIVE_MAX_RESEARCH=1 pytest -m live tests/test_live_handshake.py -v
 
 Он подтверждает доступность публичного WebSocket и init frame, но не заменяет
 закрытый тест login/message push с авторизованным профилем.
+
+Push workflow дополнительно запускает этот набор на Windows/Python 3.12; локальный
+`mypy --platform win32 src` ловит обращения к POSIX-only API до отправки ветки.
 
 ## Безопасность тестовых данных
 
