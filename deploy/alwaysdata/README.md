@@ -78,6 +78,18 @@ cd ~/max-to-telegram
 These checks do not send a Telegram message. Keep `MAX_CHAT_IDS` restricted to
 the intended source chat and leave `MAX_DISCOVERY_MODE=false` for delivery.
 
+To enable the content-free liveness report in the destination chat, set this in
+the private `.env`:
+
+```dotenv
+DAILY_REPORT_ENABLED=true
+```
+
+The first report is sent about 10 seconds after the reporter starts, allowing
+the MAX login to complete; later reports are spaced 24 hours from the last
+successful report. Its counters and schedule survive normal service restarts in
+`BRIDGE_STATE_DB`. Restart the custom service after changing the flag.
+
 ## 5. Register the 24/7 service
 
 In `Advanced -> Services`, create one service with:
@@ -102,7 +114,9 @@ Service logs are available in the administration panel and under
 ## 6. Verify the running service
 
 Confirm that the service remains enabled and inspect only redacted operational
-logs. Then wait for a new post from the selected MAX channel and verify one
+logs. With daily reports enabled, confirm the first heartbeat arrives and shows
+the current MAX connection and zero failed outbox items. Then wait for a new post
+from the selected MAX channel and verify one
 delivery to the configured Telegram conversation. Also send a message in an
 unselected MAX chat and confirm that no Telegram request is made.
 

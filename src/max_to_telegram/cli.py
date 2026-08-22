@@ -25,6 +25,7 @@ from max_to_telegram.max_client import MaxAuthenticationError, MaxClient, MaxCli
 from max_to_telegram.parser import ChatPolicy, MessageParser
 from max_to_telegram.protocol import ProtocolError
 from max_to_telegram.public_probe import PublicProbeError, probe_max_public
+from max_to_telegram.reporting import DailyReporter
 from max_to_telegram.telegram import TelegramError, TelegramRetryExhausted, TelegramSender
 
 logger = logging.getLogger(__name__)
@@ -86,6 +87,12 @@ def build_runtime(
             sender=sender,
             delivery_preflight=sender.validate,
         )
+        if settings.daily_report_enabled:
+            bridge.reporter = DailyReporter(
+                store=store,
+                sender=sender,
+                max_connected=lambda: source.is_connected,
+            )
         source.set_before_message_ack(bridge.persist_before_ack)
     except BaseException:
         store.close()

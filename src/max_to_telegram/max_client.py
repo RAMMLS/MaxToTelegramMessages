@@ -97,6 +97,13 @@ class MaxClient:
         self.device_id = device_id or settings.max_device_id or str(uuid.uuid4())
         self._stop_event = asyncio.Event()
         self._next_seq = 0
+        self._connected = False
+
+    @property
+    def is_connected(self) -> bool:
+        """Whether the private MAX session is authenticated right now."""
+
+        return self._connected
 
     def stop(self) -> None:
         """Ask the reconnect loop to stop after the current operation."""
@@ -155,6 +162,7 @@ class MaxClient:
         ) as websocket:
             send_lock = asyncio.Lock()
             buffered = await self._handshake(websocket, send_lock, user_agent)
+            self._connected = True
             logger.info("MAX session authenticated")
             keepalive = asyncio.create_task(self._keepalive(websocket, send_lock))
             receive: asyncio.Future[bytes | str] | None = None
@@ -186,6 +194,7 @@ class MaxClient:
                     elif frame.cmd == 3:
                         raise self._command_error(frame)
             finally:
+                self._connected = False
                 if receive is not None and not receive.done():
                     receive.cancel()
                 if receive is not None:

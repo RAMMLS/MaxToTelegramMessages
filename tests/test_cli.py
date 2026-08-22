@@ -217,6 +217,7 @@ async def test_builds_delivery_runtime_with_exact_allowlist(tmp_path) -> None:
             "TELEGRAM_BOT_TOKEN": BOT_TOKEN,
             "TELEGRAM_CHAT_ID": "99",
             "BRIDGE_STATE_DB": str(tmp_path / "state.db"),
+            "DAILY_REPORT_ENABLED": "true",
         }
     )
 
@@ -229,6 +230,7 @@ async def test_builds_delivery_runtime_with_exact_allowlist(tmp_path) -> None:
         assert bundle.bridge.sender is not None
         assert bundle.bridge.sender.load_progress == bundle.store.delivery_progress
         assert bundle.bridge.sender.save_progress == bundle.store.record_delivery_progress
+        assert bundle.bridge.reporter is not None
     finally:
         await bundle.bridge.close()
         assert bundle.store is not None

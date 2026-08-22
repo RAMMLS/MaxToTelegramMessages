@@ -291,6 +291,7 @@ def test_legacy_database_gets_outbox_column(tmp_path):
             )
             """
         )
+        connection.execute("PRAGMA user_version=1")
         connection.commit()
     path.chmod(0o600)
 
@@ -299,17 +300,48 @@ def test_legacy_database_gets_outbox_column(tmp_path):
         assert store.pending_messages() == (parsed_message(),)
 
     with closing(sqlite3.connect(path)) as connection:
-        assert connection.execute("PRAGMA user_version").fetchone() == (1,)
+        assert connection.execute("PRAGMA user_version").fetchone() == (2,)
+        assert connection.execute("SELECT COUNT(*) FROM report_state").fetchone() == (1,)
 
 
 def test_rejects_database_from_newer_schema_version(tmp_path):
     path = tmp_path / "future.db"
     with closing(sqlite3.connect(path)) as connection:
-        connection.execute("PRAGMA user_version=2")
+        connection.execute("PRAGMA user_version=3")
     path.chmod(0o600)
 
     with pytest.raises(DedupeError, match="newer schema"):
         DedupeStore(path).open()
+
+
+def test_daily_report_counters_survive_restart_and_acknowledge_snapshot(tmp_path):
+    path = tmp_path / "state.db"
+    started = datetime(2026, 8, 22, 8, 0, tzinfo=timezone.utc)
+    sent = started + timedelta(minutes=5)
+    with DedupeStore(path) as store:
+        store.record_report_metric("received_messages", amount=3)
+        store.record_report_metric("selected_messages")
+        snapshot = store.daily_report_snapshot(now=started)
+
+    with DedupeStore(path) as reopened:
+        assert reopened.daily_report_snapshot(now=sent).received_messages == 3
+        reopened.record_report_metric("received_messages")
+        reopened.mark_daily_report_sent(snapshot, sent_at=sent)
+        remaining = reopened.daily_report_snapshot(now=sent)
+
+    assert remaining.received_messages == 1
+    assert remaining.selected_messages == 0
+    assert remaining.last_report_at == sent
+    assert remaining.period_started_at == snapshot.generated_at
+
+
+@pytest.mark.parametrize("metric", ["unknown", "received_messages"])
+def test_rejects_invalid_daily_report_metric_update(tmp_path, metric):
+    with DedupeStore(tmp_path / "state.db") as store, pytest.raises(DedupeError):
+        if metric == "unknown":
+            store.record_report_metric(metric)  # type: ignore[arg-type]
+        else:
+            store.record_report_metric(metric, amount=0)  # type: ignore[arg-type]
 
 
 def test_rejects_incompatible_existing_delivery_table(tmp_path):
