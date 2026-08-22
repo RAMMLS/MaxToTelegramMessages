@@ -165,3 +165,29 @@ def test_invalid_config_returns_two_without_traceback(monkeypatch, capsys) -> No
 def test_version_does_not_require_configuration(capsys) -> None:
     assert main(["--version"]) == 0
     assert capsys.readouterr().out.strip() == "0.1.0"
+
+
+def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
+    max_token = "m" * 32
+    telegram_token = "telegram-secret-token-value"
+    monkeypatch.setenv("MAX_VIEWER_ID", "123")
+    monkeypatch.setenv("MAX_AUTH_TOKEN", max_token)
+    monkeypatch.setenv("MAX_CHAT_IDS", "42")
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", telegram_token)
+    monkeypatch.setenv("TELEGRAM_CHAT_ID", "99")
+    monkeypatch.chdir("/")
+
+    async def fake_validate(_settings):
+        return {
+            "bot_username": "bridge_bot",
+            "chat_type": "private",
+            "chat_title": "Selected",
+        }
+
+    monkeypatch.setattr("max_to_telegram.cli.validate_telegram", fake_validate)
+
+    assert main(["--check-telegram"]) == 0
+    captured = capsys.readouterr()
+    assert '"bot_username": "bridge_bot"' in captured.out
+    assert telegram_token not in captured.out + captured.err
+    assert max_token not in captured.out + captured.err

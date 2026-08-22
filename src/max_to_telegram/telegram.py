@@ -30,6 +30,15 @@ class TelegramRetryExhausted(TelegramError):
     """A transient request that failed after the configured retry budget."""
 
 
+@dataclass(frozen=True, slots=True)
+class TelegramValidation:
+    """Non-secret result of Telegram getMe/getChat checks."""
+
+    bot_username: str
+    chat_type: str
+    chat_title: str
+
+
 class ResponseLike(Protocol):
     status: int
 
@@ -72,6 +81,24 @@ class TelegramSender:
             message_ids.append(await self._send_chunk(chunk))
         return tuple(message_ids)
 
+    async def validate(self) -> TelegramValidation:
+        """Validate the bot token and destination without sending a message."""
+
+        bot_document = await self._call("getMe", {})
+        chat_document = await self._call("getChat", {"chat_id": self.chat_id})
+        bot = bot_document.get("result") if isinstance(bot_document, dict) else None
+        chat = chat_document.get("result") if isinstance(chat_document, dict) else None
+        if not isinstance(bot, dict) or not isinstance(bot.get("username"), str):
+            raise TelegramPermanentError("Telegram getMe response has no bot username")
+        if not isinstance(chat, dict) or not isinstance(chat.get("type"), str):
+            raise TelegramPermanentError("Telegram getChat response has no chat metadata")
+        title = _chat_title(chat)
+        return TelegramValidation(
+            bot_username=bot["username"],
+            chat_type=chat["type"],
+            chat_title=title,
+        )
+
     async def close(self) -> None:
         if self.session is not None and self._owns_session:
             await self.session.close()
@@ -79,13 +106,17 @@ class TelegramSender:
             self._owns_session = False
 
     async def _send_chunk(self, text: str) -> int:
-        url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         payload = {
             "chat_id": self.chat_id,
             "text": text,
             "parse_mode": "HTML",
             "link_preview_options": {"is_disabled": True},
         }
+        document = await self._call("sendMessage", payload)
+        return _telegram_message_id(document)
+
+    async def _call(self, method: str, payload: dict[str, Any]) -> dict[str, Any]:
+        url = f"https://api.telegram.org/bot{self.bot_token}/{method}"
 
         for attempt in range(self.max_retries + 1):
             try:
@@ -100,8 +131,7 @@ class TelegramSender:
 
             ok = isinstance(document, dict) and document.get("ok") is True
             if response_status == 200 and ok:
-                message_id = _telegram_message_id(document)
-                return message_id
+                return document
 
             error_code = (
                 document.get("error_code") if isinstance(document, dict) else response_status
@@ -216,3 +246,15 @@ def _safe_description(document: Any, token: str) -> str:
     if not isinstance(document, dict) or not isinstance(document.get("description"), str):
         return "unknown Telegram error"
     return document["description"].replace(token, "<redacted>")[:500]
+
+
+def _chat_title(chat: dict[str, Any]) -> str:
+    for key in ("title", "username"):
+        value = chat.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()[:256]
+    names = [chat.get("first_name"), chat.get("last_name")]
+    rendered = " ".join(
+        value.strip() for value in names if isinstance(value, str) and value.strip()
+    )
+    return rendered[:256] or "(без названия)"
