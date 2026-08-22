@@ -205,6 +205,33 @@ async def test_does_not_retry_permanent_error_and_redacts_token() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sanitizes_untrusted_telegram_error_metadata() -> None:
+    secret_like_code = "untrusted-private-error-code"
+    session = FakeSession(
+        FakeResponse(
+            400,
+            {
+                "ok": False,
+                "error_code": secret_like_code,
+                "description": "first line\nsecond line\t" + BOT_TOKEN,
+            },
+        )
+    )
+    sender = TelegramSender(BOT_TOKEN, "42", session=session)
+
+    with pytest.raises(TelegramPermanentError) as raised:
+        await sender.send(parsed_message())
+
+    rendered = str(raised.value)
+    assert "(400)" in rendered
+    assert secret_like_code not in rendered
+    assert BOT_TOKEN not in rendered
+    assert "<redacted>" in rendered
+    assert "\n" not in rendered
+    assert "\t" not in rendered
+
+
+@pytest.mark.asyncio
 async def test_validation_error_names_the_actual_api_method() -> None:
     session = FakeSession(
         FakeResponse(401, {"ok": False, "error_code": 401, "description": "Unauthorized"})

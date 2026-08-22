@@ -38,6 +38,8 @@
 - CI без вывода совпадения блокирует Telegram-token-shaped значения и tracked `.env`;
   перед release вся история дополнительно проверяется Gitleaks.
 - ошибки конфигурации/outbox не повторяют supplied chat values и record keys.
+- Telegram error metadata проверяется по типу, ограничивается и переводится в
+  однострочный текст до попадания в исключение или журнал.
 - credential-free `--check-max-public` не открывает `.env`.
 - dotenv-loader не ищет `.env` выше текущего рабочего каталога.
 - `MAX_WS_URL` закреплён на исследованном endpoint; нестандартный host требует
