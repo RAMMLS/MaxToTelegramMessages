@@ -7,7 +7,7 @@ import html
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -60,7 +60,7 @@ class TelegramSender:
     bot_token: str = field(repr=False)
     chat_id: str
     max_retries: int = 5
-    session: SessionLike | None = field(default=None, repr=False)
+    session: SessionLike | aiohttp.ClientSession | None = field(default=None, repr=False)
     sleep: Callable[[float], Awaitable[None]] = field(default=asyncio.sleep, repr=False)
     request_timeout: float = 20.0
     _owns_session: bool = field(default=False, init=False, repr=False)
@@ -131,7 +131,7 @@ class TelegramSender:
 
             ok = isinstance(document, dict) and document.get("ok") is True
             if response_status == 200 and ok:
-                return document
+                return cast(dict[str, Any], document)
 
             error_code = (
                 document.get("error_code") if isinstance(document, dict) else response_status
@@ -165,11 +165,13 @@ class TelegramSender:
                 document = None
             return response.status, document
 
-    def _session(self) -> SessionLike:
-        if self.session is None:
-            self.session = aiohttp.ClientSession()
+    def _session(self) -> SessionLike | aiohttp.ClientSession:
+        session = self.session
+        if session is None:
+            session = aiohttp.ClientSession()
+            self.session = session
             self._owns_session = True
-        return self.session
+        return session
 
 
 def format_message_chunks(message: ParsedMessage) -> tuple[str, ...]:
@@ -239,13 +241,16 @@ def _retry_after(document: Any) -> float:
 
 
 def _retry_delay(attempt: int) -> float:
-    return min(0.5 * (2**attempt), 10.0)
+    return float(min(0.5 * (2**attempt), 10.0))
 
 
 def _safe_description(document: Any, token: str) -> str:
-    if not isinstance(document, dict) or not isinstance(document.get("description"), str):
+    if not isinstance(document, dict):
         return "unknown Telegram error"
-    return document["description"].replace(token, "<redacted>")[:500]
+    description = document.get("description")
+    if not isinstance(description, str):
+        return "unknown Telegram error"
+    return description.replace(token, "<redacted>")[:500]
 
 
 def _chat_title(chat: dict[str, Any]) -> str:
