@@ -116,7 +116,7 @@ def test_rejects_malformed_session_documents(document: object, message: str) -> 
         parse_session_document(document)
 
 
-@pytest.mark.parametrize("viewer_id", [0, -1, True, "not-an-id"])
+@pytest.mark.parametrize("viewer_id", [0, -1, 2**63, True, "not-an-id"])
 def test_rejects_invalid_viewer_id(viewer_id: object) -> None:
     with pytest.raises(AuthError, match="viewerId"):
         parse_session_document({"viewerId": viewer_id, "token": "h" * 32})

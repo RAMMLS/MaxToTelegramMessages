@@ -37,6 +37,7 @@
 - абсолютный MAX command deadline поверх потока unrelated frames;
 - pin MAX WebSocket endpoint с отдельным opt-in для protocol research;
 - нормализация Telegram error code/description против утечек и log injection;
+- signed-int64 границы для MAX viewer/chat/sender/time identifiers;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 

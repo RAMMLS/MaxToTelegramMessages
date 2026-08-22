@@ -43,6 +43,8 @@ _ATTACHMENT_LABELS = {
 _REMOVED_STATUSES = frozenset({"REMOVED", "SPAM", "DELAYED_FIRE_ERROR"})
 _MAX_ATTACHMENTS = 100
 _MAX_ATTACHMENT_TYPE_CHARS = 64
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 
 
 @dataclass(frozen=True, slots=True)
@@ -176,6 +178,8 @@ def _optional_int(value: Any, field: str) -> int | None:
         return None
     if isinstance(value, bool) or not isinstance(value, int):
         raise MessageParseError(f"{field} must be an integer")
+    if not _INT64_MIN <= value <= _INT64_MAX:
+        raise MessageParseError(f"{field} must fit signed int64")
     return cast(int, value)
 
 

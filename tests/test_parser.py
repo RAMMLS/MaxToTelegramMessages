@@ -152,6 +152,12 @@ def test_supports_seconds_timestamp_and_string_ids() -> None:
         ({"chatId": "1", "message": {"id": 1, "time": 1}}, "chatId"),
         ({"chatId": 1, "message": {"id": 1, "time": "never"}}, "message.time"),
         ({"chatId": 1, "message": {"id": 1, "time": 1.5}}, "message.time"),
+        ({"chatId": 2**63, "message": {"id": 1, "time": 1}}, "signed int64"),
+        ({"chatId": 1, "message": {"id": 1, "time": 2**63}}, "signed int64"),
+        (
+            {"chatId": 1, "message": {"id": 1, "time": 1, "sender": -(2**63) - 1}},
+            "signed int64",
+        ),
         ({"chatId": 1, "message": {"id": 1, "time": 1, "attaches": {}}}, "attaches"),
     ],
 )

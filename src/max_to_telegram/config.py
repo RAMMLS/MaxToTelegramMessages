@@ -29,6 +29,8 @@ _DEFAULT_MAX_WS_URL = "wss://api.oneme.ru/websocket"
 _DEFAULT_MAX_APP_VERSION = "26.8.8"
 _DEFAULT_MAX_LOCALE = "ru"
 _MAX_DOTENV_BYTES = 64 * 1024
+_INT64_MIN = -(2**63)
+_INT64_MAX = 2**63 - 1
 _TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
 _TELEGRAM_CHAT_ID_PATTERN = re.compile(r"-?[1-9][0-9]{0,19}\Z")
 ValidationPurpose = Literal["runtime", "max_public", "telegram", "telegram_discovery", "state"]
@@ -91,6 +93,8 @@ def _parse_chat_ids(raw: str | None) -> frozenset[int]:
             raise ConfigError("MAX_CHAT_IDS contains a non-numeric value") from exc
         if chat_id == 0:
             raise ConfigError("MAX_CHAT_IDS must not contain 0")
+        if not _INT64_MIN <= chat_id <= _INT64_MAX:
+            raise ConfigError("MAX_CHAT_IDS values must fit signed int64")
         result.add(chat_id)
     return frozenset(result)
 
@@ -139,7 +143,12 @@ class Settings:
             source = MappingProxyType(dict(env))
 
         session_raw = source.get("MAX_SESSION_FILE", "").strip()
-        viewer_id = _parse_int("MAX_VIEWER_ID", source.get("MAX_VIEWER_ID"))
+        viewer_id = _parse_int(
+            "MAX_VIEWER_ID",
+            source.get("MAX_VIEWER_ID"),
+            minimum=1,
+            maximum=_INT64_MAX,
+        )
         queue_size = _parse_int(
             "BRIDGE_QUEUE_SIZE",
             source.get("BRIDGE_QUEUE_SIZE"),
