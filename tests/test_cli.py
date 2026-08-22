@@ -179,6 +179,7 @@ async def test_builds_delivery_runtime_with_exact_allowlist(tmp_path) -> None:
         assert bundle.bridge.policy.allowed_chat_ids == frozenset({42, -77})
         assert bundle.store is not None
         assert bundle.bridge.source.before_message_ack == bundle.bridge.persist_before_ack
+        assert bundle.bridge.delivery_preflight is not None
     finally:
         await bundle.bridge.close()
         assert bundle.store is not None

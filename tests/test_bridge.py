@@ -10,7 +10,7 @@ from max_to_telegram.dedupe import DedupeError, DedupeStore
 from max_to_telegram.max_client import OPCODE_NEW_MESSAGE
 from max_to_telegram.parser import ChatPolicy, MessageParser, ParsedMessage
 from max_to_telegram.protocol import Frame
-from max_to_telegram.telegram import TelegramRetryExhausted
+from max_to_telegram.telegram import TelegramPermanentError, TelegramRetryExhausted
 
 
 class FakeSource:
@@ -252,6 +252,34 @@ async def test_telegram_failure_stays_pending_and_propagates(tmp_path) -> None:
         with pytest.raises(TelegramRetryExhausted, match="offline"):
             await runtime.run()
         assert len(store.pending_messages()) == 1
+    finally:
+        store.close()
+
+
+@pytest.mark.asyncio
+async def test_destination_preflight_runs_before_reading_max_events(tmp_path) -> None:
+    sender = FakeSender()
+    store = DedupeStore(tmp_path / "state.db").open()
+
+    async def rejected_destination() -> object:
+        raise TelegramPermanentError("wrong destination")
+
+    runtime = Bridge(
+        source=FakeSource([frame()]),
+        parser=MessageParser(viewer_id=123),
+        policy=ChatPolicy(frozenset({42})),
+        discovery_mode=False,
+        queue_size=1,
+        store=store,
+        sender=sender,
+        delivery_preflight=rejected_destination,
+    )
+    try:
+        with pytest.raises(TelegramPermanentError, match="wrong destination"):
+            await runtime.run()
+        assert runtime.stats.frames_seen == 0
+        assert sender.messages == []
+        assert store.stats().total == 0
     finally:
         store.close()
 

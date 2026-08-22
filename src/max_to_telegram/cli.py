@@ -81,6 +81,7 @@ def build_runtime(
             queue_size=settings.queue_size,
             store=store,
             sender=sender,
+            delivery_preflight=sender.validate,
         )
         source.set_before_message_ack(bridge.persist_before_ack)
     except BaseException:

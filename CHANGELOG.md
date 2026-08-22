@@ -24,6 +24,7 @@
 - однозначный MAX auth source и строгий числовой Telegram destination ID;
 - CI timeout и невыводящий secret-pattern guard для tracked файлов;
 - race-resistant descriptor reads для `.env` и MAX session JSON;
+- обязательный Telegram getMe/getChat preflight до подключения к MAX;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 
