@@ -8,7 +8,7 @@ include README.md
 include RESEARCH.md
 include SECURITY.md
 include pyproject.toml
-recursive-include deploy *.service
+recursive-include deploy *.example *.md *.service *.sh
 recursive-include tests *.py
 
 prune .github

@@ -1,3 +1,4 @@
+import re
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -56,3 +57,43 @@ def test_ci_has_timeout_and_non_echoing_secret_guard() -> None:
     assert "git grep -q -E" in workflow
     assert "git ls-files --error-unmatch .env" in workflow
     assert "git grep -n" not in workflow
+
+
+def test_alwaysdata_bootstrap_keeps_runtime_state_private() -> None:
+    bootstrap = (PROJECT_ROOT / "deploy/alwaysdata/bootstrap.sh").read_text(encoding="utf-8")
+
+    assert "set -eu" in bootstrap
+    assert "umask 077" in bootstrap
+    assert "PIP_NO_CACHE_DIR=1" in bootstrap
+    assert "mkdir -p data" in bootstrap
+    assert "chmod 700 data" in bootstrap
+    assert "chmod 600 .env" in bootstrap
+    assert "chmod 600 data/max-session.json" in bootstrap
+    assert ".venv/bin/max-to-telegram --version" in bootstrap
+    assert "cat .env" not in bootstrap
+    assert "set -x" not in bootstrap
+
+
+def test_alwaysdata_template_is_fail_closed_and_contains_no_credentials() -> None:
+    template = (PROJECT_ROOT / "deploy/alwaysdata/bridge.env.example").read_text(encoding="utf-8")
+
+    assert "MAX_SESSION_FILE=data/max-session.json" in template
+    assert "BRIDGE_STATE_DB=data/state.sqlite3" in template
+    assert "MAX_CHAT_IDS=\n" in template
+    assert "MAX_DISCOVERY_MODE=false" in template
+    assert "TELEGRAM_BOT_TOKEN=\n" in template
+    assert not re.search(r"[0-9]{8,12}:[A-Za-z0-9_-]{30,}", template)
+
+
+def test_alwaysdata_runbook_uses_foreground_service_without_inline_secrets() -> None:
+    runbook = (PROJECT_ROOT / "deploy/alwaysdata/README.md").read_text(encoding="utf-8")
+
+    assert "command: `.venv/bin/max-to-telegram`" in runbook
+    assert "working directory: `max-to-telegram`" in runbook
+    assert "environment: empty" in runbook
+    assert "/home/ACCOUNT/home/ACCOUNT/max-to-telegram" in runbook
+    assert "monitoring command: empty" in runbook
+    assert "No incoming port" in runbook
+    assert "Do not paste tokens into the service command" in runbook
+    assert "MAX_SESSION_FILE=data/max-session.json" in runbook
+    assert "BRIDGE_STATE_DB=data/state.sqlite3" in runbook
