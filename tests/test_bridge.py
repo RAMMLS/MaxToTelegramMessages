@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -75,7 +75,7 @@ def parsed_message(*, chat_id: int = 42, message_id: str = "1") -> ParsedMessage
         sender_name="User",
         chat_title="Chat",
         text="pending",
-        timestamp=datetime(2026, 8, 22, tzinfo=UTC),
+        timestamp=datetime(2026, 8, 22, tzinfo=timezone.utc),
         timestamp_raw=1_777_000_000_000,
         update_time=None,
         status=None,

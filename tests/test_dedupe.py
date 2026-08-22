@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 import sqlite3
 from contextlib import closing
-from datetime import UTC, datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -19,7 +19,7 @@ def parsed_message(**overrides: object) -> ParsedMessage:
         "sender_name": "Тестовый отправитель",
         "chat_title": "Выбранный чат",
         "text": "сообщение",
-        "timestamp": datetime(2026, 8, 22, tzinfo=UTC),
+        "timestamp": datetime(2026, 8, 22, tzinfo=timezone.utc),
         "timestamp_raw": 1_777_000_000_000,
         "update_time": None,
         "status": None,
@@ -263,7 +263,7 @@ def test_invalid_failure_kind_is_rejected(tmp_path, kind):
 
 
 def test_prune_removes_only_old_delivered_rows(tmp_path):
-    now = datetime(2026, 8, 22, tzinfo=UTC)
+    now = datetime(2026, 8, 22, tzinfo=timezone.utc)
     with DedupeStore(tmp_path / "state.db") as store:
         store.claim("old", now=now - timedelta(days=40))
         store.mark_delivered("old", [1], now=now - timedelta(days=40))
@@ -278,7 +278,7 @@ def test_prune_removes_only_old_delivered_rows(tmp_path):
 
 
 def test_prune_caps_delivered_history(tmp_path):
-    now = datetime(2026, 8, 22, tzinfo=UTC)
+    now = datetime(2026, 8, 22, tzinfo=timezone.utc)
     with DedupeStore(tmp_path / "state.db") as store:
         for index in range(4):
             key = f"key-{index}"
@@ -298,4 +298,4 @@ def test_naive_timestamps_and_negative_cap_are_rejected(tmp_path):
         with pytest.raises(DedupeError, match="timezone"):
             store.claim("key", now=datetime(2026, 1, 1))
         with pytest.raises(DedupeError, match="must not be negative"):
-            store.prune(delivered_before=datetime.now(UTC), keep_at_most=-1)
+            store.prune(delivered_before=datetime.now(timezone.utc), keep_at_most=-1)

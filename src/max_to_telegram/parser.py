@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from enum import Enum
 from typing import Any
 
@@ -196,7 +196,7 @@ def _optional_text(value: Any, field: str, *, maximum: int) -> str | None:
 def _timestamp(value: int) -> datetime:
     seconds = value / 1000 if value >= 10_000_000_000 else value
     try:
-        return datetime.fromtimestamp(seconds, tz=UTC)
+        return datetime.fromtimestamp(seconds, tz=timezone.utc)
     except (OverflowError, OSError, ValueError) as exc:
         raise MessageParseError("message.time is outside the supported range") from exc
 

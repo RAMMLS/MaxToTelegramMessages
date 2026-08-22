@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import html
 from collections import deque
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -60,7 +60,7 @@ def parsed_message(**overrides: object) -> ParsedMessage:
         "sender_name": "Ada <Admin>",
         "chat_title": "R&D & QA",
         "text": "Hello <world> & everyone",
-        "timestamp": datetime(2026, 8, 22, 0, 0, tzinfo=UTC),
+        "timestamp": datetime(2026, 8, 22, 0, 0, tzinfo=timezone.utc),
         "timestamp_raw": 1_777_000_000_000,
         "update_time": None,
         "status": None,

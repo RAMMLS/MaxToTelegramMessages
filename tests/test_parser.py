@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 
 import pytest
 
@@ -45,7 +45,7 @@ def test_parses_text_message_and_names() -> None:
     assert message.sender_name == "Ada Lovelace"
     assert message.chat_title == "Selected chat"
     assert message.text == "hello from MAX"
-    assert message.timestamp == datetime.fromtimestamp(1_700_000_000, tz=UTC)
+    assert message.timestamp == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
     assert message.is_outgoing is False
     assert message.content == "hello from MAX"
 
@@ -124,7 +124,7 @@ def test_supports_seconds_timestamp_and_string_ids() -> None:
     message = MessageParser(viewer_id=123).parse(push(payload))
 
     assert message.message_id == "message-1"
-    assert message.timestamp == datetime.fromtimestamp(1_700_000_000, tz=UTC)
+    assert message.timestamp == datetime.fromtimestamp(1_700_000_000, tz=timezone.utc)
 
 
 @pytest.mark.parametrize(
