@@ -22,6 +22,7 @@
 - WebSocket init/login, ping/ack, reconnect с exponential backoff и jitter;
 - немедленный reconnect при отказе фонового application keepalive;
 - парсер входящих сообщений, edits и вложений;
+- fail-closed отсечение removed/service и всех неподтверждённых не-`USER` типов;
 - точный allowlist числовых `chatId`;
 - discovery-режим, который показывает встреченные чаты и не обращается к Telegram;
 - bounded async queue и локальный durable outbox SQLite;

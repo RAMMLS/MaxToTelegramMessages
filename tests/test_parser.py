@@ -72,6 +72,27 @@ def test_control_attachment_marks_service_message() -> None:
     assert ChatPolicy(frozenset({-42})).decide(message) is PolicyDecision.SERVICE
 
 
+@pytest.mark.parametrize("message_type", ["SYSTEM", "CONTROL", "  service  ", ""])
+def test_non_user_message_types_are_rejected_as_service(message_type: str) -> None:
+    message = MessageParser(viewer_id=123).parse(
+        push(text_payload(text="server event", type=message_type))
+    )
+
+    assert ChatPolicy(frozenset({-42})).decide(message) is PolicyDecision.SERVICE
+
+
+def test_message_type_and_status_are_normalized_case_insensitively() -> None:
+    incoming = MessageParser(viewer_id=123).parse(push(text_payload(type=" user ")))
+    removed = MessageParser(viewer_id=123).parse(
+        push(text_payload(type="user", status=" removed "))
+    )
+
+    assert incoming.message_type == "USER"
+    assert ChatPolicy(frozenset({-42})).decide(incoming) is PolicyDecision.FORWARD
+    assert removed.status == "REMOVED"
+    assert ChatPolicy(frozenset({-42})).decide(removed) is PolicyDecision.REMOVED
+
+
 def test_policy_forwards_only_exact_selected_chat() -> None:
     message = MessageParser(viewer_id=123).parse(push(text_payload()))
 
