@@ -8,7 +8,7 @@ from collections.abc import AsyncIterator, Callable
 from dataclasses import dataclass
 from typing import Protocol
 
-from max_to_telegram.dedupe import DedupeStore
+from max_to_telegram.dedupe import DedupeError, DedupeStore
 from max_to_telegram.max_client import OPCODE_NEW_MESSAGE
 from max_to_telegram.parser import (
     ChatPolicy,
@@ -155,10 +155,13 @@ class Bridge:
 
     async def _recover_pending(self) -> None:
         store = self._delivery_store()
-        pending = store.pending_messages()
-        if pending:
-            logger.info("Recovering %d pending Telegram deliveries", len(pending))
-        for message in pending:
+        pending_count = store.stats().pending
+        if pending_count > 100_000:
+            raise DedupeError("pending outbox exceeds the 100000-message recovery limit")
+        if pending_count:
+            logger.info("Recovering %d pending Telegram deliveries", pending_count)
+        fetch_size = min(self._queue.maxsize, 100)
+        for message in store.iter_pending_messages(limit=100_000, fetch_size=fetch_size):
             decision = self.policy.decide(message)
             if decision is not PolicyDecision.FORWARD:
                 store.discard_pending(message.dedupe_key)

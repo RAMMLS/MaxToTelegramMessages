@@ -138,6 +138,15 @@ def test_invalid_pending_limit_is_rejected(tmp_path, limit):
         store.pending_messages(limit=limit)
 
 
+@pytest.mark.parametrize("fetch_size", [0, -1, 1_001])
+def test_invalid_pending_fetch_size_is_rejected(tmp_path, fetch_size):
+    with (
+        DedupeStore(tmp_path / "state.db") as store,
+        pytest.raises(DedupeError, match="fetch size"),
+    ):
+        tuple(store.iter_pending_messages(fetch_size=fetch_size))
+
+
 def test_outbox_rejects_non_message(tmp_path):
     with (
         DedupeStore(tmp_path / "state.db") as store,

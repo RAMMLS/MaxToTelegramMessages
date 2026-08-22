@@ -6,6 +6,7 @@ import json
 import os
 import sqlite3
 import stat
+from collections.abc import Iterator
 from contextlib import suppress
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -202,11 +203,23 @@ class DedupeStore:
     def pending_messages(self, *, limit: int = 10_000) -> tuple[ParsedMessage, ...]:
         """Return recoverable pending messages in durable insertion order."""
 
+        return tuple(self.iter_pending_messages(limit=limit))
+
+    def iter_pending_messages(
+        self,
+        *,
+        limit: int = 100_000,
+        fetch_size: int = 32,
+    ) -> Iterator[ParsedMessage]:
+        """Stream pending messages without materializing the whole outbox."""
+
         if limit < 1 or limit > 100_000:
             raise DedupeError("pending message limit must be between 1 and 100000")
+        if fetch_size < 1 or fetch_size > 1_000:
+            raise DedupeError("pending fetch size must be between 1 and 1000")
         connection = self._require_connection()
         try:
-            rows = connection.execute(
+            cursor = connection.execute(
                 """
                 SELECT dedupe_key, message_json FROM deliveries
                 WHERE state = 'pending' AND message_json IS NOT NULL
@@ -214,19 +227,24 @@ class DedupeStore:
                 LIMIT ?
                 """,
                 (limit,),
-            ).fetchall()
+            )
         except sqlite3.Error as exc:
             raise DedupeError("could not load pending delivery records") from exc
-        messages: list[ParsedMessage] = []
-        for key, payload in rows:
+        while True:
             try:
-                message = _deserialize_message(str(payload))
-            except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
-                raise DedupeError(f"pending delivery record is corrupt: {key!r}") from exc
-            if message.dedupe_key != key:
-                raise DedupeError(f"pending delivery key does not match its payload: {key!r}")
-            messages.append(message)
-        return tuple(messages)
+                rows = cursor.fetchmany(fetch_size)
+            except sqlite3.Error as exc:
+                raise DedupeError("could not stream pending delivery records") from exc
+            if not rows:
+                return
+            for key, payload in rows:
+                try:
+                    message = _deserialize_message(str(payload))
+                except (KeyError, TypeError, ValueError, json.JSONDecodeError) as exc:
+                    raise DedupeError(f"pending delivery record is corrupt: {key!r}") from exc
+                if message.dedupe_key != key:
+                    raise DedupeError(f"pending delivery key does not match its payload: {key!r}")
+                yield message
 
     def stats(self) -> OutboxStats:
         """Return content-free operational counters."""
