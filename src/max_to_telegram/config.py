@@ -34,6 +34,7 @@ _MAX_SELECTED_CHATS = 1_000
 _MAX_WS_URL_CHARS = 2_048
 _MAX_APP_VERSION_CHARS = 64
 _MAX_LOCALE_CHARS = 32
+_MAX_CONFIG_PATH_CHARS = 4_096
 _INT64_MIN = -(2**63)
 _INT64_MAX = 2**63 - 1
 _TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
@@ -110,6 +111,20 @@ def _has_control_characters(value: str) -> bool:
     return any(ord(character) < 32 or ord(character) == 127 for character in value)
 
 
+def _expand_config_path(name: str, value: str) -> Path:
+    if (
+        not value
+        or len(value) > _MAX_CONFIG_PATH_CHARS
+        or _has_control_characters(value)
+        or "\x00" in value
+    ):
+        raise ConfigError(f"{name} must be a non-empty path without control characters")
+    try:
+        return Path(value).expanduser()
+    except (RuntimeError, ValueError) as exc:
+        raise ConfigError(f"{name} could not be expanded safely") from exc
+
+
 @dataclass(frozen=True, slots=True)
 class Settings:
     """Validated runtime configuration.
@@ -154,6 +169,8 @@ class Settings:
             source = MappingProxyType(dict(env))
 
         session_raw = source.get("MAX_SESSION_FILE", "").strip()
+        state_source = source.get("BRIDGE_STATE_DB")
+        state_raw = ".max-to-telegram.sqlite3" if state_source is None else state_source.strip()
         viewer_id = _parse_int(
             "MAX_VIEWER_ID",
             source.get("MAX_VIEWER_ID"),
@@ -194,7 +211,9 @@ class Settings:
             max_viewer_id=viewer_id,
             max_auth_token=source.get("MAX_AUTH_TOKEN", "").strip() or None,
             max_device_id=source.get("MAX_DEVICE_ID", "").strip() or None,
-            max_session_file=Path(session_raw).expanduser() if session_raw else None,
+            max_session_file=(
+                _expand_config_path("MAX_SESSION_FILE", session_raw) if session_raw else None
+            ),
             max_chat_ids=_parse_chat_ids(source.get("MAX_CHAT_IDS")),
             discovery_mode=_parse_bool(
                 "MAX_DISCOVERY_MODE", source.get("MAX_DISCOVERY_MODE"), default=False
@@ -202,9 +221,7 @@ class Settings:
             telegram_bot_token=source.get("TELEGRAM_BOT_TOKEN", "").strip() or None,
             telegram_chat_id=source.get("TELEGRAM_CHAT_ID", "").strip() or None,
             queue_size=queue_size if queue_size is not None else 100,
-            state_db=Path(
-                source.get("BRIDGE_STATE_DB", ".max-to-telegram.sqlite3").strip()
-            ).expanduser(),
+            state_db=_expand_config_path("BRIDGE_STATE_DB", state_raw),
             reconnect_max_seconds=reconnect_max if reconnect_max is not None else 10,
             telegram_max_retries=telegram_retries if telegram_retries is not None else 5,
             log_level=source.get("LOG_LEVEL", "INFO").strip().upper(),
@@ -262,6 +279,8 @@ class Settings:
                 errors.append(
                     "choose either MAX_VIEWER_ID with MAX_AUTH_TOKEN or MAX_SESSION_FILE, not both"
                 )
+            if self.max_session_file is not None and self.max_session_file == self.state_db:
+                errors.append("MAX_SESSION_FILE and BRIDGE_STATE_DB must be different files")
             if not all(direct_auth_parts) and self.max_session_file is None:
                 errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
             if self.max_device_id:

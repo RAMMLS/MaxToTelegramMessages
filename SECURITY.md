@@ -37,6 +37,7 @@
 - DEBUG-логи транспортов отключены, известные секреты редактируются formatter-ом;
 - pending outbox содержит текст локально, после доставки текст очищается;
 - state/session/env файлы исключены из Git.
+- session и state paths ограничены, безопасно expand-ятся и не могут совпадать;
 - CI без вывода совпадения блокирует Telegram-token-shaped значения и tracked `.env`;
   перед release вся история дополнительно проверяется Gitleaks.
 - ошибки конфигурации/outbox не повторяют supplied chat values и record keys.
