@@ -158,11 +158,20 @@ async def test_pre_ack_hook_persists_only_selected_incoming_messages(tmp_path) -
 
 
 @pytest.mark.asyncio
-async def test_pre_ack_hook_ignores_malformed_or_irrelevant_frame(tmp_path) -> None:
+async def test_pre_ack_hook_fails_closed_for_malformed_selected_message(tmp_path) -> None:
     runtime, _, store = bridge(tmp_path, [])
     try:
+        malformed = Frame(
+            cmd=0,
+            seq=1,
+            opcode=OPCODE_NEW_MESSAGE,
+            payload={"chatId": 42},
+        )
+        with pytest.raises(DedupeError, match="before protocol ACK"):
+            await runtime.persist_before_ack(malformed)
+
         await runtime.persist_before_ack(
-            Frame(cmd=0, seq=1, opcode=OPCODE_NEW_MESSAGE, payload={"chatId": 42})
+            Frame(cmd=0, seq=2, opcode=OPCODE_NEW_MESSAGE, payload={"chatId": 99})
         )
         await runtime.persist_before_ack(Frame(cmd=0, seq=2, opcode=777))
 

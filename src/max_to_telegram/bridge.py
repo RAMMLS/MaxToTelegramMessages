@@ -125,10 +125,26 @@ class Bridge:
         store = self._delivery_store()
         try:
             message = self.parser.parse(frame)
-        except MessageParseError:
+        except MessageParseError as exc:
+            if self._frame_targets_allowed_chat(frame):
+                raise DedupeError(
+                    "selected MAX message could not be normalized before protocol ACK"
+                ) from exc
             return
         if self.policy.decide(message) is PolicyDecision.FORWARD:
             store.enqueue(message)
+
+    def _frame_targets_allowed_chat(self, frame: Frame) -> bool:
+        if not isinstance(frame.payload, dict):
+            return False
+        raw_chat_id = frame.payload.get("chatId")
+        if raw_chat_id is None or isinstance(raw_chat_id, bool):
+            return False
+        try:
+            chat_id = int(raw_chat_id)
+        except (TypeError, ValueError, OverflowError):
+            return False
+        return chat_id in self.policy.allowed_chat_ids
 
     async def _produce(self) -> None:
         try:
