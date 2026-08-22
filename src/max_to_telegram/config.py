@@ -13,7 +13,7 @@ from types import MappingProxyType
 from typing import Literal
 from urllib.parse import urlparse
 
-from dotenv import find_dotenv, load_dotenv
+from dotenv import load_dotenv
 
 from max_to_telegram.safe_files import PrivateFileError, read_private_text
 
@@ -274,10 +274,13 @@ class Settings:
 
 
 def _load_protected_dotenv() -> None:
-    raw_path = find_dotenv(usecwd=True)
-    if not raw_path:
+    path = Path.cwd() / ".env"
+    try:
+        path.lstat()
+    except FileNotFoundError:
         return
-    path = Path(raw_path)
+    except OSError as exc:
+        raise ConfigError("cannot inspect .env file in the current directory") from exc
     try:
         raw = read_private_text(path, maximum_bytes=_MAX_DOTENV_BYTES, label=".env file")
     except PrivateFileError as exc:

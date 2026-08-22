@@ -39,3 +39,4 @@
   перед release вся история дополнительно проверяется Gitleaks.
 - ошибки конфигурации/outbox не повторяют supplied chat values и record keys.
 - credential-free `--check-max-public` не открывает `.env`.
+- dotenv-loader не ищет `.env` выше текущего рабочего каталога.
