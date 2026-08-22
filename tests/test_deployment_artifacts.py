@@ -23,3 +23,4 @@ def test_example_environment_contains_no_credentials() -> None:
 
     assert "MAX_AUTH_TOKEN=\n" in example
     assert "TELEGRAM_BOT_TOKEN=\n" in example
+    assert "\nMAX_CHAT_IDS=\n" in example
