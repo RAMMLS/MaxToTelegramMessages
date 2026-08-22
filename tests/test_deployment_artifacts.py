@@ -24,3 +24,19 @@ def test_example_environment_contains_no_credentials() -> None:
     assert "MAX_AUTH_TOKEN=\n" in example
     assert "TELEGRAM_BOT_TOKEN=\n" in example
     assert "\nMAX_CHAT_IDS=\n" in example
+
+
+def test_gitignore_covers_documented_state_file_variants() -> None:
+    gitignore = (PROJECT_ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    for pattern in (
+        "*.sqlite3",
+        "*.sqlite3-shm",
+        "*.sqlite3-wal",
+        "*.sqlite3.lock",
+        "*.db",
+        "*.db-shm",
+        "*.db-wal",
+        "*.db.lock",
+    ):
+        assert pattern in gitignore
