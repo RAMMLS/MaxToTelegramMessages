@@ -192,3 +192,16 @@ def test_rejects_oversized_dotenv(tmp_path, monkeypatch) -> None:
 
     with pytest.raises(ConfigError, match="unexpectedly large"):
         Settings.from_env()
+
+
+@pytest.mark.parametrize(
+    ("name", "value", "maximum"),
+    [
+        ("BRIDGE_QUEUE_SIZE", "10001", "10000"),
+        ("MAX_RECONNECT_MAX_SECONDS", "3601", "3600"),
+        ("TELEGRAM_MAX_RETRIES", "21", "20"),
+    ],
+)
+def test_rejects_resource_settings_above_safe_bounds(name: str, value: str, maximum: str) -> None:
+    with pytest.raises(ConfigError, match=rf"{name} must be at most {maximum}"):
+        Settings.from_env(complete_env(**{name: value}))

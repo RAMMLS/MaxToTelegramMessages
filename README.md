@@ -29,6 +29,7 @@
 - retry для network errors, HTTP `429`, `408`, `425` и `5xx`;
 - редактирование секретов в логах и корректное завершение по SIGINT/SIGTERM;
 - строгие типы ID/time и границы размера attachment metadata из private protocol;
+- bounded queue/retry/reconnect settings и безопасный backoff при долгом outage;
 - тесты, Ruff, строгая типизация, dependency audit и GitHub Actions для Python
   3.10 и 3.12.
 
