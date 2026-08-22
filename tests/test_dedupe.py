@@ -195,6 +195,7 @@ def test_legacy_database_gets_outbox_column(tmp_path):
             """
         )
         connection.commit()
+    path.chmod(0o600)
 
     with DedupeStore(path) as store:
         store.enqueue(parsed_message())
@@ -243,6 +244,31 @@ def test_open_is_idempotent_and_directory_path_is_rejected(tmp_path):
 
     with pytest.raises(DedupeError, match="regular file"):
         DedupeStore(tmp_path).open()
+
+
+@pytest.mark.skipif(os.name != "posix", reason="POSIX permissions are required")
+def test_state_database_rejects_symlink_and_broad_permissions(tmp_path):
+    target = tmp_path / "target.db"
+    target.touch(mode=0o600)
+    linked = tmp_path / "linked.db"
+    linked.symlink_to(target)
+
+    with pytest.raises(DedupeError, match="symlink"):
+        DedupeStore(linked).open()
+
+    broad = tmp_path / "broad.db"
+    broad.touch(mode=0o600)
+    broad.chmod(0o644)
+    with pytest.raises(DedupeError, match="chmod 600"):
+        DedupeStore(broad).open()
+
+
+def test_state_database_parent_creation_error_is_sanitized(tmp_path):
+    parent_file = tmp_path / "not-a-directory"
+    parent_file.write_text("occupied", encoding="utf-8")
+
+    with pytest.raises(DedupeError, match="prepare"):
+        DedupeStore(parent_file / "state.db").open()
 
 
 @pytest.mark.skipif(dedupe_module.fcntl is None, reason="requires POSIX flock")
