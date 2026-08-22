@@ -198,6 +198,17 @@ async def test_does_not_retry_permanent_error_and_redacts_token() -> None:
 
 
 @pytest.mark.asyncio
+async def test_validation_error_names_the_actual_api_method() -> None:
+    session = FakeSession(
+        FakeResponse(401, {"ok": False, "error_code": 401, "description": "Unauthorized"})
+    )
+    sender = TelegramSender("token-1234567890123456", "42", session=session)
+
+    with pytest.raises(TelegramPermanentError, match=r"rejected getMe \(401\)"):
+        await sender.validate()
+
+
+@pytest.mark.asyncio
 async def test_sends_all_long_message_chunks() -> None:
     message = parsed_message(text="x" * 10_000)
     expected_chunks = format_message_chunks(message)

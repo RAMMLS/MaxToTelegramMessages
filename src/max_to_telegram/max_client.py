@@ -361,15 +361,29 @@ class MaxClient:
                 self.credentials_updated(LocalMaxSession(updated, self.device_id))
             self.credentials = updated
 
-    @staticmethod
-    def _command_error(frame: Frame) -> MaxCommandError:
+    def _command_error(self, frame: Frame) -> MaxCommandError:
         payload = frame.payload if isinstance(frame.payload, dict) else {}
-        code = str(payload.get("error", "unknown"))
-        message = payload.get("localizedMessage") or payload.get("message") or ""
-        if not isinstance(message, str):
-            message = ""
+        code = _safe_server_text(
+            payload.get("error"),
+            fallback="unknown",
+            maximum=64,
+            secret=self.credentials.token,
+        )
+        message = _safe_server_text(
+            payload.get("localizedMessage") or payload.get("message"),
+            fallback="",
+            maximum=500,
+            secret=self.credentials.token,
+        )
         return MaxCommandError(opcode=frame.opcode, code=code, message=message)
 
     def _reconnect_delay(self, attempt: int) -> float:
         ceiling = min(0.5 * (2**attempt), float(self.settings.reconnect_max_seconds))
         return self.random_uniform(ceiling / 2, ceiling)
+
+
+def _safe_server_text(value: Any, *, fallback: str, maximum: int, secret: str) -> str:
+    if not isinstance(value, (str, int)) or isinstance(value, bool):
+        return fallback
+    rendered = " ".join(str(value).split()).replace(secret, "<redacted>")
+    return rendered[:maximum] or fallback

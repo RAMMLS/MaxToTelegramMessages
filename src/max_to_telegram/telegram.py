@@ -150,7 +150,7 @@ class TelegramSender:
                 continue
 
             raise TelegramPermanentError(
-                f"Telegram rejected sendMessage ({error_code}): {description}"
+                f"Telegram rejected {method} ({error_code}): {description}"
             )
 
         raise TelegramRetryExhausted("Telegram retry loop ended unexpectedly")
