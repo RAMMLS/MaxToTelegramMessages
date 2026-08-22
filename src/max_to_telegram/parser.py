@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from enum import Enum
-from typing import Any
+from typing import Any, cast
 
 from max_to_telegram.max_client import OPCODE_NEW_MESSAGE
 from max_to_telegram.protocol import Frame
@@ -39,6 +39,8 @@ _ATTACHMENT_LABELS = {
     "VIDEO_MESSAGE": "Видеосообщение",
 }
 _REMOVED_STATUSES = frozenset({"REMOVED", "SPAM", "DELAYED_FIRE_ERROR"})
+_MAX_ATTACHMENTS = 100
+_MAX_ATTACHMENT_TYPE_CHARS = 64
 
 
 @dataclass(frozen=True, slots=True)
@@ -165,12 +167,9 @@ def _required_int(value: Any, field: str, *, allow_negative: bool) -> int:
 def _optional_int(value: Any, field: str) -> int | None:
     if value is None:
         return None
-    if isinstance(value, bool):
+    if isinstance(value, bool) or not isinstance(value, int):
         raise MessageParseError(f"{field} must be an integer")
-    try:
-        return int(value)
-    except (TypeError, ValueError) as exc:
-        raise MessageParseError(f"{field} must be an integer") from exc
+    return cast(int, value)
 
 
 def _message_id(value: Any) -> str:
@@ -207,6 +206,8 @@ def _parse_attachments(value: Any) -> tuple[tuple[str, ...], bool]:
         return (), False
     if not isinstance(value, list):
         raise MessageParseError("message.attaches must be an array")
+    if len(value) > _MAX_ATTACHMENTS:
+        raise MessageParseError("message.attaches contains too many items")
     labels: list[str] = []
     is_service = False
     for attachment in value:
@@ -218,6 +219,8 @@ def _parse_attachments(value: Any) -> tuple[tuple[str, ...], bool]:
             labels.append("Вложение")
             continue
         attachment_type = raw_type.strip().upper()
+        if len(attachment_type) > _MAX_ATTACHMENT_TYPE_CHARS:
+            raise MessageParseError("message attachment type is too long")
         if attachment_type == "CONTROL":
             is_service = True
             continue

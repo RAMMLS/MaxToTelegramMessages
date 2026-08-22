@@ -134,7 +134,10 @@ def test_supports_seconds_timestamp_and_string_ids() -> None:
         ({}, "message object"),
         ({"chatId": True, "message": {"id": 1, "time": 1}}, "chatId"),
         ({"chatId": 1, "message": {"id": True, "time": 1}}, "message.id"),
+        ({"chatId": 1.5, "message": {"id": 1, "time": 1}}, "chatId"),
+        ({"chatId": "1", "message": {"id": 1, "time": 1}}, "chatId"),
         ({"chatId": 1, "message": {"id": 1, "time": "never"}}, "message.time"),
+        ({"chatId": 1, "message": {"id": 1, "time": 1.5}}, "message.time"),
         ({"chatId": 1, "message": {"id": 1, "time": 1, "attaches": {}}}, "attaches"),
     ],
 )
@@ -156,3 +159,15 @@ def test_normalizes_whitespace_in_display_names() -> None:
 
     assert message.sender_name == "Grace Hopper"
     assert message.chat_title == "Project Room"
+
+
+@pytest.mark.parametrize(
+    ("attaches", "error"),
+    [
+        ([{"_type": "PHOTO"}] * 101, "too many"),
+        ([{"_type": "X" * 65}], "type is too long"),
+    ],
+)
+def test_bounds_attachment_metadata(attaches: list[dict[str, str]], error: str) -> None:
+    with pytest.raises(MessageParseError, match=error):
+        MessageParser(viewer_id=123).parse(push(text_payload(attaches=attaches)))
