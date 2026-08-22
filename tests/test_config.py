@@ -6,7 +6,7 @@ import pytest
 
 from max_to_telegram.config import ConfigError, Settings
 
-BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+BOT_TOKEN = "12345:TEST_ONLY_NOT_A_REAL_BOT_TOKEN_12345"
 
 
 def complete_env(**overrides: str) -> dict[str, str]:

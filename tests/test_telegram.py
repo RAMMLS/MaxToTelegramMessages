@@ -18,7 +18,7 @@ from max_to_telegram.telegram import (
     format_message_chunks,
 )
 
-BOT_TOKEN = "1234567890:AA_TEST_token_1234567890abcdefghijk"
+BOT_TOKEN = "12345:TEST_ONLY_NOT_A_REAL_BOT_TOKEN_12345"
 
 
 class FakeResponse:
