@@ -6,7 +6,9 @@ import uuid
 import pytest
 from websockets.asyncio.client import connect
 
+from max_to_telegram.config import Settings
 from max_to_telegram.protocol import Frame, FrameCodec
+from max_to_telegram.public_probe import probe_max_public
 
 
 @pytest.mark.live
@@ -49,6 +51,20 @@ async def test_anonymous_max_handshake() -> None:
     assert decoded.opcode == 6
     assert isinstance(decoded.payload, dict)
     assert "phone-auth-enabled" in decoded.payload
+
+
+@pytest.mark.live
+@pytest.mark.skipif(
+    os.getenv("RUN_LIVE_MAX_RESEARCH") != "1",
+    reason="set RUN_LIVE_MAX_RESEARCH=1 to contact the public MAX WebSocket",
+)
+async def test_production_public_probe() -> None:
+    result = await probe_max_public(Settings.from_env({}, purpose="max_public"))
+
+    assert result.endpoint_host == "api.oneme.ru"
+    assert result.protocol_version == 10
+    assert result.init_opcode == 6
+    assert result.public_config_key_count > 0
 
 
 @pytest.mark.live

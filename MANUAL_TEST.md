@@ -32,6 +32,8 @@ git diff --check
 
 - [ ] Все команды завершились успешно.
 - [ ] Проверены GitHub Actions для того же commit на Python 3.10 и 3.12.
+- [ ] `max-to-telegram --check-max-public` вернул protocol `10` и init opcode
+      `6` без чтения `.env`.
 
 ## 3. Telegram без отправки
 
