@@ -343,6 +343,9 @@ async def test_validation_rejects_malformed_success_response() -> None:
         ("123:short", "42", "token"),
         ("1234567890:invalid/token-value", "42", "token"),
         (BOT_TOKEN, "", "chat ID"),
+        (BOT_TOKEN, "@channel", "numeric int64"),
+        (BOT_TOKEN, "0", "numeric int64"),
+        (BOT_TOKEN, str(2**63), "numeric int64"),
     ],
 )
 def test_rejects_invalid_sender_configuration(token: str, chat_id: str, message: str) -> None:

@@ -28,11 +28,19 @@ _DEFAULT_MAX_APP_VERSION = "26.8.8"
 _DEFAULT_MAX_LOCALE = "ru"
 _MAX_DOTENV_BYTES = 64 * 1024
 _TELEGRAM_BOT_TOKEN_PATTERN = re.compile(r"[1-9][0-9]{4,19}:[A-Za-z0-9_-]{20,128}\Z")
+_TELEGRAM_CHAT_ID_PATTERN = re.compile(r"-?[1-9][0-9]{0,19}\Z")
 ValidationPurpose = Literal["runtime", "telegram", "telegram_discovery", "state"]
 
 
 def is_valid_telegram_bot_token(value: str | None) -> bool:
     return value is not None and _TELEGRAM_BOT_TOKEN_PATTERN.fullmatch(value) is not None
+
+
+def is_valid_telegram_chat_id(value: str | None) -> bool:
+    if value is None or _TELEGRAM_CHAT_ID_PATTERN.fullmatch(value) is None:
+        return False
+    numeric = int(value)
+    return -(2**63) <= numeric <= 2**63 - 1
 
 
 def _parse_bool(name: str, raw: str | None, *, default: bool = False) -> bool:
@@ -192,6 +200,10 @@ class Settings:
             direct_auth_parts = (self.max_viewer_id is not None, self.max_auth_token is not None)
             if any(direct_auth_parts) and not all(direct_auth_parts):
                 errors.append("MAX_VIEWER_ID and MAX_AUTH_TOKEN must be set together")
+            if all(direct_auth_parts) and self.max_session_file is not None:
+                errors.append(
+                    "choose either MAX_VIEWER_ID with MAX_AUTH_TOKEN or MAX_SESSION_FILE, not both"
+                )
             if not all(direct_auth_parts) and self.max_session_file is None:
                 errors.append("set MAX_VIEWER_ID with MAX_AUTH_TOKEN, or provide MAX_SESSION_FILE")
             if self.max_device_id:
@@ -212,6 +224,8 @@ class Settings:
                     errors.append("TELEGRAM_BOT_TOKEN is malformed")
                 if not self.telegram_chat_id:
                     errors.append("TELEGRAM_CHAT_ID is required outside discovery mode")
+                elif not is_valid_telegram_chat_id(self.telegram_chat_id):
+                    errors.append("TELEGRAM_CHAT_ID must be a non-zero numeric int64 chat ID")
         elif purpose == "telegram":
             if not self.telegram_bot_token:
                 errors.append("TELEGRAM_BOT_TOKEN is required")
@@ -219,6 +233,8 @@ class Settings:
                 errors.append("TELEGRAM_BOT_TOKEN is malformed")
             if not self.telegram_chat_id:
                 errors.append("TELEGRAM_CHAT_ID is required")
+            elif not is_valid_telegram_chat_id(self.telegram_chat_id):
+                errors.append("TELEGRAM_CHAT_ID must be a non-zero numeric int64 chat ID")
         elif purpose == "telegram_discovery":
             if not self.telegram_bot_token:
                 errors.append("TELEGRAM_BOT_TOKEN is required")
