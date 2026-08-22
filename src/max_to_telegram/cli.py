@@ -232,7 +232,10 @@ def main(argv: list[str] | None = None) -> int:
             purpose = "telegram_discovery"
         elif args.check_state:
             purpose = "state"
-        settings = Settings.from_env(purpose=purpose)
+        settings = Settings.from_env(
+            load_dotenv_file=purpose != "max_public",
+            purpose=purpose,
+        )
         local_session: LocalMaxSession | None = None
         redacted_secrets = [settings.max_auth_token or "", settings.telegram_bot_token or ""]
         if purpose == "runtime":

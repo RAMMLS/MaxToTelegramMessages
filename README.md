@@ -75,7 +75,7 @@ max-to-telegram --check-config
 ```
 
 Публичный MAX init можно проверить вообще без credentials; команда не создаёт QR
-и не выполняет login:
+и не выполняет login. Для этой команды `.env` намеренно не читается:
 
 ```bash
 max-to-telegram --check-max-public

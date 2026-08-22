@@ -262,10 +262,15 @@ def test_version_does_not_require_configuration(capsys) -> None:
     assert capsys.readouterr().out.strip() == "0.1.0"
 
 
-def test_checks_public_max_without_credentials(monkeypatch, capsys) -> None:
+def test_checks_public_max_without_credentials_or_reading_dotenv(
+    monkeypatch, capsys, tmp_path
+) -> None:
     for key in ("MAX_VIEWER_ID", "MAX_AUTH_TOKEN", "MAX_SESSION_FILE", "TELEGRAM_BOT_TOKEN"):
         monkeypatch.delenv(key, raising=False)
-    monkeypatch.chdir("/")
+    dotenv = tmp_path / ".env"
+    dotenv.write_text("MAX_AUTH_TOKEN=must-not-be-read\n", encoding="utf-8")
+    dotenv.chmod(0o644)
+    monkeypatch.chdir(tmp_path)
 
     async def fake_probe(_settings):
         return PublicProbeResult(
@@ -282,6 +287,7 @@ def test_checks_public_max_without_credentials(monkeypatch, capsys) -> None:
     captured = capsys.readouterr()
     assert '"protocol_version": 10' in captured.out
     assert '"init_opcode": 6' in captured.out
+    assert "must-not-be-read" not in captured.out + captured.err
 
 
 def test_check_telegram_prints_safe_metadata(monkeypatch, capsys) -> None:
