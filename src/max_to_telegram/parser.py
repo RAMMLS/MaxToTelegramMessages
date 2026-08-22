@@ -119,7 +119,8 @@ class MessageParser:
         text = _optional_text(message.get("text"), "message.text", maximum=1_000_000) or ""
         attachments, is_service = _parse_attachments(message.get("attaches"))
 
-        chat = payload.get("chat") if isinstance(payload.get("chat"), dict) else {}
+        raw_chat = payload.get("chat")
+        chat: dict[Any, Any] = raw_chat if isinstance(raw_chat, dict) else {}
         sender_name = _display_name(
             payload.get("sender"),
             message.get("senderName"),

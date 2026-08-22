@@ -42,14 +42,13 @@ def build_runtime(
     loaded = local_session or load_local_session(settings)
     credentials = loaded.credentials
     source = MaxClient(settings, credentials, device_id=loaded.device_id)
-    if settings.max_session_file is not None:
+    session_path = settings.max_session_file
+    if session_path is not None:
         save_session_file(
-            settings.max_session_file,
+            session_path,
             LocalMaxSession(credentials, source.device_id),
         )
-        source.credentials_updated = lambda updated: save_session_file(
-            settings.max_session_file, updated
-        )
+        source.credentials_updated = lambda updated: save_session_file(session_path, updated)
     parser = MessageParser(viewer_id=credentials.viewer_id)
     policy = ChatPolicy(settings.max_chat_ids)
 

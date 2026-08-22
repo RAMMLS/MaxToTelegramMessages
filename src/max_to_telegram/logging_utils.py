@@ -4,15 +4,24 @@ from __future__ import annotations
 
 import logging
 import sys
-from collections.abc import Iterable
-from typing import TextIO
+from collections.abc import Iterable, Mapping
+from typing import Any, Literal, TextIO
 
 
 class RedactingFormatter(logging.Formatter):
     """Redact secrets from messages, arguments, and formatted tracebacks."""
 
-    def __init__(self, *args: object, secrets: Iterable[str] = (), **kwargs: object) -> None:
-        super().__init__(*args, **kwargs)
+    def __init__(
+        self,
+        fmt: str | None = None,
+        datefmt: str | None = None,
+        style: Literal["%", "{", "$"] = "%",
+        validate: bool = True,
+        *,
+        defaults: Mapping[str, Any] | None = None,
+        secrets: Iterable[str] = (),
+    ) -> None:
+        super().__init__(fmt, datefmt, style, validate, defaults=defaults)
         self._secrets = tuple(
             sorted(
                 {secret for secret in secrets if isinstance(secret, str) and len(secret) >= 8},
