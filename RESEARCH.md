@@ -148,9 +148,10 @@ opcode 288, payload отсутствует
 
 До сканирования сервер вернул `status.expiresAt`. После подтверждения клиент ожидает `status.loginAvailable`, затем завершает QR-login командой opcode `291` с `trackId`.
 
-Форма init и создания QR-сессии закреплена opt-in live-тестами в
-`tests/test_live_handshake.py`. На 2026-08-22 оба теста повторно прошли против
-публичного endpoint; тесты не печатают и не сохраняют `trackId`/`qrLink`.
+Форма init, production probe и создание QR-сессии закреплены тремя opt-in
+live-тестами в `tests/test_live_handshake.py`. На 2026-08-22 они повторно прошли
+против публичного endpoint; тесты не печатают и не сохраняют
+`trackId`/`qrLink`.
 Для безопасной операторской перепроверки только init доступна команда
 `max-to-telegram --check-max-public`, не требующая профиля или token.
 
