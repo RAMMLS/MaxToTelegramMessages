@@ -312,6 +312,7 @@ async def test_discovers_unique_chat_ids_without_reading_message_content() -> No
     request = session.requests[0][1]["json"]
     assert request["limit"] == 100
     assert request["timeout"] == 0
+    assert "allowed_updates" not in request
     assert "text" not in request
 
 

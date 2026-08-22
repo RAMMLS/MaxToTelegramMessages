@@ -117,13 +117,6 @@ class TelegramSender:
             {
                 "limit": 100,
                 "timeout": 0,
-                "allowed_updates": [
-                    "message",
-                    "edited_message",
-                    "channel_post",
-                    "edited_channel_post",
-                    "my_chat_member",
-                ],
             },
         )
         updates = document.get("result")
