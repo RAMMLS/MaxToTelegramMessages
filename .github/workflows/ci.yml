@@ -55,7 +55,15 @@ jobs:
       - name: Mypy
         run: mypy
       - name: Tests
-        run: pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
+        shell: bash
+        run: |
+          test_status=0
+          pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85 \
+            --junitxml=.pytest-results.xml || test_status=$?
+          if (( test_status != 0 )); then
+            python -m max_to_telegram.ci_junit_summary .pytest-results.xml
+          fi
+          exit "$test_status"
       - name: Package
         run: python -m build && python -m max_to_telegram --version
       - name: Dependency audit
