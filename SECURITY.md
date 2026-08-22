@@ -40,6 +40,8 @@
 - ошибки конфигурации/outbox не повторяют supplied chat values и record keys.
 - Telegram error metadata проверяется по типу, ограничивается и переводится в
   однострочный текст до попадания в исключение или журнал.
+- обычные runtime-логи содержат только счётчики и причины policy; raw MAX
+  chat/message IDs и имена печатаются только в явно включённом discovery mode.
 - credential-free `--check-max-public` не открывает `.env`.
 - dotenv-loader не ищет `.env` выше текущего рабочего каталога.
 - `MAX_WS_URL` закреплён на исследованном endpoint; нестандартный host требует
