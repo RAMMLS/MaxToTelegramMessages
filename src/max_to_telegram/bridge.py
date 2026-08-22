@@ -155,6 +155,14 @@ class Bridge:
 
     async def _recover_pending(self) -> None:
         store = self._delivery_store()
+        health = store.health()
+        if not health.integrity_ok:
+            raise DedupeError("delivery state database failed its integrity check")
+        if health.unrecoverable_pending:
+            raise DedupeError(
+                "pending outbox contains records without recoverable message data; "
+                "inspect the state database before restarting"
+            )
         pending_count = store.stats().pending
         if pending_count > 100_000:
             raise DedupeError("pending outbox exceeds the 100000-message recovery limit")

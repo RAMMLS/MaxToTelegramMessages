@@ -14,6 +14,7 @@
 - Telegram sender с HTML escaping, разбиением и retry/backoff;
 - durable SQLite outbox, дедупликация и восстановление pending delivery;
 - CLI-проверки конфигурации, Telegram и локального состояния;
+- SQLite integrity/recoverability check с fail-closed startup для legacy pending;
 - редактирование секретов в логах, лимиты frame/decompression и process lock;
 - тесты Python 3.10/3.12, property/fuzz cases и SHA-pinned GitHub Actions.
 

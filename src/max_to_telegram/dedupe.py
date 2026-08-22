@@ -40,6 +40,15 @@ class OutboxStats:
     total: int
 
 
+@dataclass(frozen=True, slots=True)
+class OutboxHealth:
+    """Content-free startup diagnostics for the durable outbox."""
+
+    integrity_ok: bool
+    recoverable_pending: int
+    unrecoverable_pending: int
+
+
 class DedupeStore:
     """Small SQLite store with an atomic pending/delivered state machine.
 
@@ -267,6 +276,31 @@ class DedupeStore:
         if row is None:
             raise DedupeError("delivery counters query returned no result")
         return OutboxStats(*(int(value or 0) for value in row))
+
+    def health(self) -> OutboxHealth:
+        """Check SQLite integrity and whether every pending item is recoverable."""
+
+        connection = self._require_connection()
+        try:
+            integrity_rows = connection.execute("PRAGMA quick_check").fetchall()
+            row = connection.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN state = 'pending' AND message_json IS NOT NULL THEN 1 ELSE 0 END),
+                    SUM(CASE WHEN state = 'pending' AND message_json IS NULL THEN 1 ELSE 0 END)
+                FROM deliveries
+                """
+            ).fetchone()
+        except sqlite3.Error as exc:
+            raise DedupeError("could not validate the delivery state database") from exc
+        if row is None:
+            raise DedupeError("delivery health query returned no result")
+        integrity_ok = len(integrity_rows) == 1 and integrity_rows[0] == ("ok",)
+        return OutboxHealth(
+            integrity_ok=integrity_ok,
+            recoverable_pending=int(row[0] or 0),
+            unrecoverable_pending=int(row[1] or 0),
+        )
 
     def mark_delivered(
         self,
