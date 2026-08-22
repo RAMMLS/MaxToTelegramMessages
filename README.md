@@ -73,6 +73,16 @@ chmod 600 .env
 max-to-telegram --check-config
 ```
 
+Публичный MAX init можно проверить вообще без credentials; команда не создаёт QR
+и не выполняет login:
+
+```bash
+max-to-telegram --check-max-public
+```
+
+Она выводит только hostname, protocol/opcode, факт compression и количество
+ключей публичной конфигурации — без значений ответа.
+
 После настройки Telegram можно проверить bot token и доступ к целевому чату без
 отправки сообщения:
 

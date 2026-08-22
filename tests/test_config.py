@@ -77,6 +77,14 @@ def test_state_inspection_purpose_needs_no_credentials() -> None:
     assert settings.telegram_bot_token is None
 
 
+def test_public_max_probe_purpose_needs_no_credentials() -> None:
+    settings = Settings.from_env({}, purpose="max_public")
+
+    assert settings.max_ws_url == "wss://api.oneme.ru/websocket"
+    assert settings.max_auth_token is None
+    assert settings.telegram_bot_token is None
+
+
 @pytest.mark.parametrize("chat_ids", ["1,abc", "0", "1, 2, nope"])
 def test_rejects_invalid_chat_ids(chat_ids: str) -> None:
     with pytest.raises(ConfigError, match="MAX_CHAT_IDS"):

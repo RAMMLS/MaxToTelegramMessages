@@ -24,6 +24,7 @@ from max_to_telegram.logging_utils import configure_logging
 from max_to_telegram.max_client import MaxAuthenticationError, MaxClient, MaxClientError
 from max_to_telegram.parser import ChatPolicy, MessageParser
 from max_to_telegram.protocol import ProtocolError
+from max_to_telegram.public_probe import PublicProbeError, probe_max_public
 from max_to_telegram.telegram import TelegramError, TelegramRetryExhausted, TelegramSender
 
 logger = logging.getLogger(__name__)
@@ -185,6 +186,11 @@ def _parser() -> argparse.ArgumentParser:
         help="validate local configuration without opening network connections",
     )
     modes.add_argument(
+        "--check-max-public",
+        action="store_true",
+        help="probe the public MAX init command without credentials",
+    )
+    modes.add_argument(
         "--check-telegram",
         action="store_true",
         help="call getMe/getChat without sending a message",
@@ -218,7 +224,9 @@ def main(argv: list[str] | None = None) -> int:
 
     try:
         purpose: ValidationPurpose = "runtime"
-        if args.check_telegram:
+        if args.check_max_public:
+            purpose = "max_public"
+        elif args.check_telegram:
             purpose = "telegram"
         elif args.discover_telegram_chats:
             purpose = "telegram_discovery"
@@ -240,6 +248,10 @@ def main(argv: list[str] | None = None) -> int:
             summary = settings.safe_summary()
             summary["max_viewer_id"] = local_session.credentials.viewer_id
             print(json.dumps(summary, ensure_ascii=False, sort_keys=True))
+            return 0
+        if args.check_max_public:
+            public_result = asyncio.run(probe_max_public(settings))
+            print(json.dumps(asdict(public_result), ensure_ascii=False, sort_keys=True))
             return 0
         if args.check_telegram:
             validation_result = asyncio.run(validate_telegram(settings))
@@ -270,6 +282,7 @@ def main(argv: list[str] | None = None) -> int:
         MaxAuthenticationError,
         MaxClientError,
         ProtocolError,
+        PublicProbeError,
         TelegramError,
     ) as exc:
         print(f"max-to-telegram: {exc}", file=sys.stderr)
