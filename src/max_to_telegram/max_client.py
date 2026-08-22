@@ -332,6 +332,7 @@ class MaxClient:
         return {
             "token": self.credentials.token,
             "chatsCount": 15,
+            "lastLogin": 0,
             "interactive": False,
             "chatsSync": 0,
             "contactsSync": 0,

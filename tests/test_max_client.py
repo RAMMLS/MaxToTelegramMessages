@@ -128,6 +128,13 @@ async def test_handshake_acknowledges_ping_and_message_before_yield() -> None:
     assert sent[-1].seq == 21
     assert sent[-1].payload == {"chatId": 42, "messageId": 777}
     assert sent[1].payload["token"] == "a" * 32
+    assert sent[1].payload["chatsCount"] == 15
+    assert sent[1].payload["lastLogin"] == 0
+    assert sent[1].payload["interactive"] is False
+    assert sent[1].payload["chatsSync"] == 0
+    assert sent[1].payload["contactsSync"] == 0
+    assert sent[1].payload["presenceSync"] == -1
+    assert sent[1].payload["draftsSync"] == 0
 
 
 @pytest.mark.asyncio
