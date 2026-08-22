@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+from pathlib import Path
 
 import pytest
 
@@ -142,6 +143,48 @@ def test_session_file_can_replace_direct_credentials() -> None:
 
     assert settings.max_session_file is not None
     assert settings.max_viewer_id is None
+
+
+def test_rejects_same_session_and_state_path() -> None:
+    with pytest.raises(ConfigError, match="must be different files"):
+        Settings.from_env(
+            {
+                "MAX_SESSION_FILE": "./local-state",
+                "BRIDGE_STATE_DB": "local-state",
+                "MAX_DISCOVERY_MODE": "true",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    ("name", "value"),
+    [
+        ("BRIDGE_STATE_DB", ""),
+        ("BRIDGE_STATE_DB", "state\nprivate"),
+        ("BRIDGE_STATE_DB", "x" * 4097),
+        ("MAX_SESSION_FILE", "session\x00private"),
+    ],
+)
+def test_rejects_unsafe_configuration_paths(name: str, value: str) -> None:
+    env = complete_env(**{name: value})
+    if name == "MAX_SESSION_FILE":
+        env.pop("MAX_VIEWER_ID")
+        env.pop("MAX_AUTH_TOKEN")
+
+    with pytest.raises(ConfigError, match=name):
+        Settings.from_env(env)
+
+
+def test_wraps_path_expansion_error_as_config_error(monkeypatch) -> None:
+    def fail_expand(_path: Path) -> Path:
+        raise RuntimeError("private platform detail")
+
+    monkeypatch.setattr(Path, "expanduser", fail_expand)
+
+    with pytest.raises(ConfigError, match="BRIDGE_STATE_DB") as raised:
+        Settings.from_env(complete_env())
+
+    assert "private platform detail" not in str(raised.value)
 
 
 def test_rejects_ambiguous_direct_and_file_auth_sources() -> None:
