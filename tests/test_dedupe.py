@@ -129,11 +129,39 @@ def test_pending_outbox_edit_replaces_same_revision_payload(tmp_path):
     corrected = parsed_message(text="after")
     with DedupeStore(tmp_path / "state.db") as store:
         store.enqueue(first)
+        store.record_delivery_progress(first.dedupe_key, [91])
         claim = store.enqueue(corrected)
 
         assert claim.should_deliver is True
         assert claim.previous_attempts == 1
         assert store.pending_messages()[0].text == "after"
+        assert store.delivery_progress(corrected.dedupe_key) == ()
+
+
+def test_partial_delivery_progress_survives_restart_and_identical_requeue(tmp_path):
+    path = tmp_path / "state.db"
+    message = parsed_message(text="long message")
+    with DedupeStore(path) as store:
+        store.enqueue(message)
+        store.record_delivery_progress(message.dedupe_key, [101, 102])
+
+    with DedupeStore(path) as reopened:
+        assert reopened.delivery_progress(message.dedupe_key) == (101, 102)
+        reopened.enqueue(message)
+        assert reopened.delivery_progress(message.dedupe_key) == (101, 102)
+        reopened.mark_delivered(message.dedupe_key, [101, 102, 103])
+
+    with DedupeStore(path) as reopened, pytest.raises(DedupeError, match="not pending"):
+        reopened.delivery_progress(message.dedupe_key)
+
+
+@pytest.mark.parametrize("ids", [[], [0], [-1], [True], ["1"]])
+def test_invalid_partial_delivery_progress_is_rejected(tmp_path, ids):
+    message = parsed_message()
+    with DedupeStore(tmp_path / "state.db") as store:
+        store.enqueue(message)
+        with pytest.raises(DedupeError, match="positive integers"):
+            store.record_delivery_progress(message.dedupe_key, ids)
 
 
 def test_different_edit_revision_is_a_second_outbox_item(tmp_path):

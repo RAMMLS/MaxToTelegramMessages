@@ -73,6 +73,8 @@ def build_runtime(
             settings.telegram_bot_token,
             settings.telegram_chat_id,
             max_retries=settings.telegram_max_retries,
+            load_progress=store.delivery_progress,
+            save_progress=store.record_delivery_progress,
         )
         bridge = Bridge(
             source=source,
