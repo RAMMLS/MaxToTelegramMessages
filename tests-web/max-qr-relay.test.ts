@@ -7,7 +7,7 @@ vi.mock('cloudflare:workers', () => ({
   },
 }));
 
-import { callQrRelay } from '@/lib/max-qr-relay';
+import { callQrRelay, pollQrRelayUntilTerminal } from '@/lib/max-qr-relay';
 
 describe('MAX QR relay client', () => {
   afterEach(() => {
@@ -45,6 +45,45 @@ describe('MAX QR relay client', () => {
       type: 'completed',
       session: { viewerId: '42', token: 'session-token', deviceId: 'device-1' },
     });
+  });
+
+  it('keeps polling on the server until MAX completes the QR login', async () => {
+    const call = vi.fn()
+      .mockResolvedValueOnce({ type: 'waiting', expiresAt: 1_900_000_010_000 })
+      .mockResolvedValueOnce({ type: 'waiting', expiresAt: 1_900_000_020_000 })
+      .mockResolvedValueOnce({
+        type: 'completed',
+        session: { viewerId: '42', token: 'session-token', deviceId: 'device-1' },
+      });
+    const sleep = vi.fn().mockResolvedValue(undefined);
+
+    await expect(pollQrRelayUntilTerminal(
+      { type: 'poll', sessionId: 'session-1' },
+      { call, sleep, now: () => 1_900_000_000_000 },
+    )).resolves.toMatchObject({ type: 'completed' });
+
+    expect(call).toHaveBeenCalledTimes(3);
+    expect(sleep).toHaveBeenNthCalledWith(1, 5_000);
+    expect(sleep).toHaveBeenNthCalledWith(2, 5_000);
+  });
+
+  it('fails closed when the QR expires during server-side polling', async () => {
+    const call = vi.fn().mockResolvedValue({
+      type: 'waiting',
+      expiresAt: 1_900_000_001_000,
+    });
+    let current = 1_900_000_000_000;
+
+    await expect(pollQrRelayUntilTerminal(
+      { type: 'poll', sessionId: 'session-1' },
+      {
+        call,
+        now: () => current,
+        sleep: async (milliseconds) => { current += milliseconds; },
+      },
+    )).rejects.toMatchObject({ code: 'track.not.found', status: 409 });
+
+    expect(call).toHaveBeenCalledOnce();
   });
 
   it('fails closed on a malformed credential response', async () => {

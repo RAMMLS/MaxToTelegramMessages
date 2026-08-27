@@ -1,5 +1,10 @@
 import { hasSameOrigin } from '@/lib/auth-utils';
-import { callQrRelay, QrRelayError, type RelayEvent } from '@/lib/max-qr-relay';
+import {
+  callQrRelay,
+  pollQrRelayUntilTerminal,
+  QrRelayError,
+  type RelayEvent,
+} from '@/lib/max-qr-relay';
 import { hasPortalSession, portalOwnerKey } from '@/lib/portal-session';
 import { claimQrAttempt, initializeSessionStore, saveMaxSession } from '@/lib/session-store';
 
@@ -25,7 +30,10 @@ export async function POST(request: Request): Promise<Response> {
     if (command.type === 'start' && !(await claimQrAttempt(ownerId))) {
       return errorResponse('rate_limited', 'Слишком много попыток. Повторите немного позже.', 429);
     }
-    return json(await portalEvent(ownerId, await callQrRelay(command)));
+    const event = command.type === 'poll'
+      ? await pollQrRelayUntilTerminal({ type: 'poll', sessionId: command.sessionId })
+      : await callQrRelay(command);
+    return json(await portalEvent(ownerId, event));
   } catch (error) {
     const code = error instanceof QrRelayError ? error.code : 'relay_failed';
     const status = error instanceof QrRelayError ? error.status : 502;
