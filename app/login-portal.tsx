@@ -13,7 +13,7 @@ type PortalEvent =
   | { type: 'saved'; updatedAt: number }
   | { type: 'error'; code: string; message: string };
 
-export function LoginPortal({ displayName }: { displayName: string }) {
+export function LoginPortal() {
   const socketRef = useRef<WebSocket | null>(null);
   const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
@@ -147,7 +147,7 @@ export function LoginPortal({ displayName }: { displayName: string }) {
           </div>
           <div className="account-block">
             <span className="secure-badge"><span aria-hidden="true">●</span> защищено</span>
-            <small title={displayName}>{displayName}</small>
+            <small>доступ подтверждён</small>
           </div>
         </header>
 
@@ -193,7 +193,7 @@ export function LoginPortal({ displayName }: { displayName: string }) {
         </div>
 
         <footer className="security-strip">
-          <p><span aria-hidden="true">✓</span>Вход через защищённую учётную запись ChatGPT</p>
+          <p><span aria-hidden="true">✓</span>Доступ по отдельному коду портала</p>
           <p><span aria-hidden="true">✓</span>Токен MAX не показывается и не записывается в браузер</p>
           <p><span aria-hidden="true">✓</span>QR действует только в рамках одной короткой сессии</p>
         </footer>

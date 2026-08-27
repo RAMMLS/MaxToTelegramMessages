@@ -140,32 +140,40 @@ python -m max_to_telegram
 
 ## MAX-аутентификация через защищённый QR-портал
 
-Предпочтительный путь — приватный портал в OpenAI Sites. Доступ к интерфейсу
-ограничивается политикой Sites и дополнительным allowlist владельца. Портал
-создаёт QR напрямую через `wss://api.oneme.ru/websocket`, держит `trackId` и
+Предпочтительный путь — портал в OpenAI Sites с собственным кодом доступа.
+Так человеку, который сканирует QR, не нужна учётная запись ChatGPT: внешний
+адрес открыт, но интерфейс, status API и WebSocket QR закрыты подписанной
+12-часовой сессией портала. Портал создаёт QR напрямую через
+`wss://api.oneme.ru/websocket`, держит `trackId` и
 исходный MAX WebSocket только на сервере, а после подтверждения шифрует
 `viewerId`, token и `deviceId` алгоритмом AES-GCM в D1. Session token не
 возвращается в браузер и не попадает в URL.
 
 Порядок для владельца аккаунта:
 
-1. Открыть приватный адрес портала и войти через разрешённую учётную запись.
+1. Открыть адрес портала и ввести отдельный код доступа владельца моста.
 2. Нажать «Создать QR для входа».
 3. В мобильном MAX открыть сканер QR и подтвердить вход.
 4. Дождаться статуса «Готово». Если включена 2FA, ввести пароль в защищённую
    форму портала.
 
-Bridge получает последнюю сессию по отдельному HTTPS endpoint с двумя уровнями
-доступа: приватный service credential Sites в заголовке
-`OAI-Sites-Authorization` и независимый bearer secret приложения в
-`Authorization`. Для alwaysdata задаются только в закрытом env-файле:
+Код портала хранится только как secret окружения `MAX_PORTAL_ACCESS_KEY` и
+должен содержать не менее 32 случайных символов. Login ограничен десятью
+попытками на IP за 10 минут; cookie имеет `HttpOnly`, `Secure` и
+`SameSite=Strict`.
+
+Bridge получает последнюю сессию по отдельному HTTPS endpoint с независимым
+bearer secret приложения в `Authorization`. Для alwaysdata задаются только в
+закрытом env-файле:
 
 ```dotenv
 MAX_SESSION_FILE=.max-session.json
-MAX_SESSION_SYNC_URL=https://your-private-site.example/api/bridge/session
+MAX_SESSION_SYNC_URL=https://your-site.example/api/bridge/session
 MAX_SESSION_SYNC_TOKEN=replace-with-application-bearer-secret
-MAX_SESSION_SITE_ACCESS_TOKEN=replace-with-private-sites-service-token
 ```
+
+`MAX_SESSION_SITE_ACCESS_TOKEN` остаётся опциональным только для установки,
+где весь Sites-проект дополнительно закрыт системной политикой доступа.
 
 При старте bridge скачивает сессию, проверяет схему ответа и атомарно сохраняет
 локальный файл с правами `0600`. Redirect запрещён, а прежний валидный файл
@@ -316,9 +324,9 @@ MAX_DEVICE_ID=123e4567-e89b-12d3-a456-426614174000
 
 # Альтернатива прямым credentials: защищённая синхронизация из Sites.
 # MAX_SESSION_FILE=.max-session.json
-# MAX_SESSION_SYNC_URL=https://your-private-site.example/api/bridge/session
+# MAX_SESSION_SYNC_URL=https://your-site.example/api/bridge/session
 # MAX_SESSION_SYNC_TOKEN=replace-with-application-bearer-secret
-# MAX_SESSION_SITE_ACCESS_TOKEN=replace-with-private-sites-service-token
+# MAX_SESSION_SITE_ACCESS_TOKEN=replace-with-optional-private-sites-service-token
 
 MAX_WS_URL=wss://api.oneme.ru/websocket
 MAX_ALLOW_CUSTOM_WS_URL=false

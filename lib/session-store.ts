@@ -15,6 +15,7 @@ type SessionRow = {
 
 const RATE_WINDOW_MS = 10 * 60 * 1000;
 const RATE_LIMIT = 6;
+const LOGIN_RATE_LIMIT = 10;
 
 export async function initializeSessionStore(): Promise<void> {
   const db = requireDatabase();
@@ -38,17 +39,31 @@ export async function initializeSessionStore(): Promise<void> {
 }
 
 export async function claimQrAttempt(ownerId: string, now = Date.now()): Promise<boolean> {
+  return claimPortalAttempt(ownerId, 'qr_started', RATE_LIMIT, now);
+}
+
+export async function claimLoginAttempt(clientId: string, now = Date.now()): Promise<boolean> {
+  return claimPortalAttempt(clientId, 'login_attempt', LOGIN_RATE_LIMIT, now);
+}
+
+async function claimPortalAttempt(
+  ownerId: string,
+  kind: string,
+  limit: number,
+  now: number,
+): Promise<boolean> {
   const db = requireDatabase();
   const cutoff = now - RATE_WINDOW_MS;
   const result = await db
-    .prepare('SELECT COUNT(*) AS count FROM portal_events WHERE owner_id = ? AND created_at >= ?')
-    .bind(ownerId, cutoff)
+    .prepare(`SELECT COUNT(*) AS count FROM portal_events
+      WHERE owner_id = ? AND kind = ? AND created_at >= ?`)
+    .bind(ownerId, kind, cutoff)
     .first<{ count: number }>();
-  if ((result?.count ?? 0) >= RATE_LIMIT) return false;
+  if ((result?.count ?? 0) >= limit) return false;
 
   await db.batch([
     db.prepare('INSERT INTO portal_events (id, owner_id, kind, created_at) VALUES (?, ?, ?, ?)')
-      .bind(crypto.randomUUID(), ownerId, 'qr_started', now),
+      .bind(crypto.randomUUID(), ownerId, kind, now),
     db.prepare('DELETE FROM portal_events WHERE created_at < ?').bind(now - 24 * 60 * 60 * 1000),
   ]);
   return true;
