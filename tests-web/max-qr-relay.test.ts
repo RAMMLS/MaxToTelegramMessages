@@ -55,4 +55,16 @@ describe('MAX QR relay client', () => {
     await expect(callQrRelay({ type: 'poll', sessionId: 'session-1' }))
       .rejects.toMatchObject({ code: 'relay_invalid_response' });
   });
+
+  it('logs bounded transport metadata without changing the public error', async () => {
+    const warning = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+    vi.stubGlobal('fetch', vi.fn().mockRejectedValue(new TypeError('network unavailable')));
+
+    await expect(callQrRelay({ type: 'start' }))
+      .rejects.toMatchObject({ code: 'relay_unavailable', status: 502 });
+    expect(warning).toHaveBeenCalledWith('MAX QR relay transport failed', {
+      errorType: 'TypeError',
+      errorMessage: 'network unavailable',
+    });
+  });
 });
