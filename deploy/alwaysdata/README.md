@@ -120,6 +120,40 @@ from the selected MAX channel and verify one
 delivery to the configured Telegram conversation. Also send a message in an
 unselected MAX chat and confirm that no Telegram request is made.
 
+## 7. Run the protected QR relay
+
+Generate one random 32-plus-character relay token. Store the same value only in
+the private alwaysdata `.env` as `MAX_QR_RELAY_TOKEN` and in the Sites secret
+with the same name. Do not put it in a service command, Git, browser storage or
+logs.
+
+Create a second service under `Advanced -> Services`:
+
+- command: `.venv/bin/max-to-telegram-qr-relay`;
+- working directory: `max-to-telegram`;
+- environment: empty;
+- monitoring command: `nc -z services-maxtotelegram.alwaysdata.net 8301`.
+
+The relay reads `MAX_QR_RELAY_HOST=::` and `MAX_QR_RELAY_PORT=8301` from the
+private `.env`, binds the alwaysdata service IPv6 interface and rejects every
+non-health request without the bearer token.
+
+Change the existing `maxtotelegram.alwaysdata.net` website to type
+`Reverse proxy` with remote URL `http://services-maxtotelegram.alwaysdata.net:8301`.
+The public `/healthz` response contains only liveness and the number of active
+short-lived QR sessions; all `/v1/qr/*` routes remain bearer-protected.
+
+In Sites set:
+
+```dotenv
+MAX_QR_RELAY_URL=https://maxtotelegram.alwaysdata.net
+MAX_QR_RELAY_TOKEN=<the same private random token>
+```
+
+Then verify `/healthz`, create a QR through the Sites portal, keep it active for
+at least 40 seconds, and complete one real mobile scan before considering the
+handover finished.
+
 If the process is repeatedly disabled, inspect the exit code and logs first.
 Exit code `2` indicates configuration, credentials, protocol, or local-state
 failure and must not be hidden by a restart loop. A temporary network/API

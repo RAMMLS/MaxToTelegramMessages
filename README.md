@@ -142,11 +142,11 @@ python -m max_to_telegram
 
 Предпочтительный путь — портал в OpenAI Sites с собственным кодом доступа.
 Так человеку, который сканирует QR, не нужна учётная запись ChatGPT: внешний
-адрес открыт, но интерфейс, status API и поток QR закрыты подписанной
-12-часовой сессией портала. Браузер получает события через обычный потоковый
-HTTPS-ответ, совместимый с Sites; портал создаёт QR напрямую через
-`wss://api.oneme.ru/websocket`, держит `trackId` и один исходный MAX WebSocket
-на сервере до завершения входа, а после подтверждения шифрует
+адрес открыт, но интерфейс и API закрыты подписанной 12-часовой сессией
+портала. Браузер опрашивает Sites обычными same-origin HTTPS-запросами; Worker
+по отдельному server-only bearer token обращается к QR-relay на alwaysdata.
+Relay создаёт QR через `wss://api.oneme.ru/websocket`, держит `trackId` и один
+исходный MAX WebSocket до завершения входа, а Sites после подтверждения шифрует
 `viewerId`, token и `deviceId` алгоритмом AES-GCM в D1. Session token не
 возвращается в браузер и не попадает в URL.
 
@@ -181,8 +181,10 @@ MAX_SESSION_SYNC_TOKEN=replace-with-application-bearer-secret
 используется только при временной недоступности портала или до первого QR-входа.
 После обновления QR перезапустите service, если supervisor не сделал это сам.
 
-Исходники портала находятся в `app/`, `lib/`, `worker.ts`; миграции D1 — в
-`drizzle/`. Локальные проверки:
+Исходники портала находятся в `app/`, `lib/`, `worker.ts`, relay — в
+`src/max_to_telegram/qr_relay.py`; миграции D1 — в `drizzle/`. Relay token
+хранится только в закрытом `.env` alwaysdata и secret окружения Sites, в
+браузер он не передаётся. Локальные проверки:
 
 ```bash
 pnpm install --frozen-lockfile
