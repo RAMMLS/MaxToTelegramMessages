@@ -6,6 +6,18 @@ type RelayCommand =
   | { type: 'poll' | 'cancel'; sessionId: string }
   | { type: 'password'; sessionId: string; password: string };
 
+type RelayPollCommand = { type: 'poll'; sessionId: string };
+type PollLoopOptions = {
+  call?: (command: RelayPollCommand) => Promise<RelayEvent>;
+  now?: () => number;
+  sleep?: (milliseconds: number) => Promise<void>;
+  maxWaitMs?: number;
+};
+
+const DEFAULT_POLL_INTERVAL_MS = 5_000;
+// Stay below the edge subrequest budget while covering the observed MAX QR lifetime.
+const MAX_SERVER_POLL_MS = 4 * 60 * 1_000;
+
 export type RelayEvent =
   | { type: 'qr'; sessionId: string; qrLink: string; expiresAt: number; pollingInterval: number }
   | { type: 'waiting'; expiresAt: number }
@@ -56,6 +68,34 @@ export async function callQrRelay(command: RelayCommand): Promise<RelayEvent> {
     throw new QrRelayError(asString(object?.code) ?? 'relay_failed', response.status);
   }
   return validateEvent(object);
+}
+
+export async function pollQrRelayUntilTerminal(
+  command: RelayPollCommand,
+  options: PollLoopOptions = {},
+): Promise<RelayEvent> {
+  const call = options.call ?? callQrRelay;
+  const now = options.now ?? Date.now;
+  const sleep = options.sleep ?? delay;
+  const maxWaitMs = options.maxWaitMs ?? MAX_SERVER_POLL_MS;
+  if (!Number.isSafeInteger(maxWaitMs) || maxWaitMs <= 0 || maxWaitMs > MAX_SERVER_POLL_MS) {
+    throw new QrRelayError('relay_invalid_poll_window');
+  }
+
+  const deadline = now() + maxWaitMs;
+  let expiresAt: number | null = null;
+  while (true) {
+    if (expiresAt !== null && Math.min(expiresAt, deadline) <= now()) {
+      throw new QrRelayError('track.not.found', 409);
+    }
+    const event = await call(command);
+    if (event.type !== 'waiting') return event;
+
+    expiresAt = event.expiresAt;
+    const remaining = Math.min(expiresAt, deadline) - now();
+    if (remaining <= 0) throw new QrRelayError('track.not.found', 409);
+    await sleep(Math.min(DEFAULT_POLL_INTERVAL_MS, remaining));
+  }
 }
 
 function validateEvent(object: Record<string, unknown> | null): RelayEvent {
@@ -134,6 +174,10 @@ function relayTransportMetadata(error: unknown): Record<string, string | number>
     if (typeof code === 'string' || typeof code === 'number') metadata.causeCode = code;
   }
   return metadata;
+}
+
+function delay(milliseconds: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
