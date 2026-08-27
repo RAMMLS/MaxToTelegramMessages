@@ -6,7 +6,7 @@ import { QRCodeSVG } from 'qrcode.react';
 type Phase = 'idle' | 'connecting' | 'waiting' | 'password' | 'saving' | 'saved' | 'error';
 type PortalEvent =
   | { type: 'connecting' }
-  | { type: 'qr'; qrLink: string; expiresAt: number; pollingInterval: number }
+  | { type: 'qr'; qrLink: string; expiresAt: number; pollingInterval: number; sessionId: string }
   | { type: 'waiting'; expiresAt: number }
   | { type: 'password_required'; hint: string | null }
   | { type: 'saving' }
@@ -14,8 +14,8 @@ type PortalEvent =
   | { type: 'error'; code: string; message: string };
 
 export function LoginPortal() {
-  const socketRef = useRef<WebSocket | null>(null);
-  const pollTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const streamAbortRef = useRef<AbortController | null>(null);
+  const sessionIdRef = useRef<string | null>(null);
   const [phase, setPhase] = useState<Phase>('idle');
   const [qrLink, setQrLink] = useState<string | null>(null);
   const [expiresAt, setExpiresAt] = useState<number | null>(null);
@@ -24,113 +24,100 @@ export function LoginPortal() {
   const [message, setMessage] = useState('Готово создать одноразовый QR');
   const [clock, setClock] = useState(0);
 
-  const stopPolling = useCallback(() => {
-    if (pollTimerRef.current) clearInterval(pollTimerRef.current);
-    pollTimerRef.current = null;
+  const stopSession = useCallback(() => {
+    streamAbortRef.current?.abort();
+    streamAbortRef.current = null;
+    sessionIdRef.current = null;
   }, []);
 
-  const closeSocket = useCallback(() => {
-    stopPolling();
-    const socket = socketRef.current;
-    socketRef.current = null;
-    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'page closed');
-  }, [stopPolling]);
-
-  useEffect(() => closeSocket, [closeSocket]);
+  useEffect(() => stopSession, [stopSession]);
   useEffect(() => {
     if (phase !== 'waiting') return;
     const timer = setInterval(() => setClock(Date.now()), 1_000);
     return () => clearInterval(timer);
   }, [phase]);
 
-  const schedulePolling = useCallback((socket: WebSocket, interval: number) => {
-    stopPolling();
-    pollTimerRef.current = setInterval(() => {
-      if (socket.readyState === WebSocket.OPEN) socket.send(JSON.stringify({ type: 'poll' }));
-    }, Math.max(2_000, Math.min(10_000, interval)));
-  }, [stopPolling]);
-
-  const handleEvent = useCallback((event: PortalEvent, socket: WebSocket) => {
+  const handleEvent = useCallback((event: PortalEvent) => {
     switch (event.type) {
       case 'connecting':
         setPhase('connecting');
         setMessage('Устанавливаем защищённое соединение с MAX…');
         break;
       case 'qr':
+        sessionIdRef.current = event.sessionId;
         setPhase('waiting');
         setQrLink(event.qrLink);
         setExpiresAt(event.expiresAt);
         setClock(Date.now());
         setMessage('Отсканируйте QR в приложении MAX');
-        schedulePolling(socket, event.pollingInterval);
         break;
       case 'waiting':
         setExpiresAt(event.expiresAt);
         setClock(Date.now());
         break;
       case 'password_required':
-        stopPolling();
         setPhase('password');
         setPasswordHint(event.hint);
         setMessage('MAX запросил пароль двухэтапной защиты');
         break;
       case 'saving':
-        stopPolling();
         setPhase('saving');
         setMessage('Шифруем и сохраняем новую сессию…');
         break;
       case 'saved':
-        stopPolling();
+        sessionIdRef.current = null;
         setPhase('saved');
         setQrLink(null);
         setMessage(`Готово · ${new Date(event.updatedAt).toLocaleString('ru-RU')}`);
         break;
       case 'error':
-        stopPolling();
+        sessionIdRef.current = null;
         setPhase('error');
         setQrLink(null);
         setMessage(event.message);
         break;
     }
-  }, [schedulePolling, stopPolling]);
+  }, []);
 
   const start = () => {
-    closeSocket();
+    stopSession();
     setQrLink(null);
     setExpiresAt(null);
     setPassword('');
     setPasswordHint(null);
     setPhase('connecting');
     setMessage('Подключаемся к MAX…');
-    const protocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const socket = new WebSocket(`${protocol}//${location.host}/api/max/qr`);
-    socketRef.current = socket;
-    socket.onmessage = (event) => {
-      if (typeof event.data !== 'string' || event.data.length > 4096) return;
-      try { handleEvent(JSON.parse(event.data) as PortalEvent, socket); } catch { /* Ignore invalid server frames. */ }
-    };
-    socket.onerror = () => {
-      stopPolling();
-      setPhase('error');
-      setMessage('Защищённое соединение не открылось. Повторите попытку.');
-    };
-    socket.onclose = (event) => {
-      stopPolling();
-      if (!event.wasClean && phase !== 'saved') {
-        setPhase('error');
-        setMessage('Соединение прервалось. Создайте новый QR.');
-      }
-    };
+    const controller = new AbortController();
+    streamAbortRef.current = controller;
+    void consumeQrStream(controller, handleEvent).finally(() => {
+      if (streamAbortRef.current === controller) streamAbortRef.current = null;
+    });
   };
 
-  const submitPassword = (event: React.FormEvent) => {
+  const submitPassword = async (event: React.FormEvent) => {
     event.preventDefault();
-    const socket = socketRef.current;
-    if (!password || !socket || socket.readyState !== WebSocket.OPEN) return;
-    socket.send(JSON.stringify({ type: 'password', password }));
+    const sessionId = sessionIdRef.current;
+    if (!password || !sessionId) return;
+    const suppliedPassword = password;
     setPassword('');
     setPhase('saving');
     setMessage('Проверяем пароль в MAX…');
+    try {
+      const response = await fetch('/api/max/qr', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'password', sessionId, password: suppliedPassword }),
+      });
+      if (!response.ok) {
+        const failure = await response.json() as Partial<PortalEvent>;
+        throw new Error('message' in failure && typeof failure.message === 'string'
+          ? failure.message
+          : 'MAX отклонил пароль.');
+      }
+    } catch (error) {
+      setPhase('error');
+      setMessage(error instanceof Error ? error.message : 'Не удалось проверить пароль.');
+    }
   };
 
   const countdown = expiresAt && clock ? Math.max(0, Math.ceil((expiresAt - clock) / 1000)) : null;
@@ -201,4 +188,68 @@ export function LoginPortal() {
       <p className="privacy-note">Личный служебный портал · данные сообщений здесь не хранятся</p>
     </main>
   );
+}
+
+async function consumeQrStream(
+  controller: AbortController,
+  onEvent: (event: PortalEvent) => void,
+): Promise<void> {
+  let terminal = false;
+  try {
+    const response = await fetch('/api/max/qr', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ type: 'start' }),
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      const failure = await response.json() as Partial<PortalEvent>;
+      if (failure.type === 'error' && typeof failure.message === 'string') {
+        onEvent(failure as PortalEvent);
+        return;
+      }
+      throw new Error('QR request failed');
+    }
+    if (!response.body) throw new Error('QR stream is unavailable');
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    while (true) {
+      const { done, value } = await reader.read();
+      buffer += decoder.decode(value, { stream: !done });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
+      for (const line of lines) {
+        const event = parsePortalEvent(line);
+        if (!event) continue;
+        onEvent(event);
+        if (event.type === 'saved' || event.type === 'error') terminal = true;
+      }
+      if (done) break;
+    }
+    const finalEvent = parsePortalEvent(buffer);
+    if (finalEvent) {
+      onEvent(finalEvent);
+      if (finalEvent.type === 'saved' || finalEvent.type === 'error') terminal = true;
+    }
+    if (!terminal && !controller.signal.aborted) throw new Error('QR stream ended early');
+  } catch {
+    if (controller.signal.aborted) return;
+    onEvent({
+      type: 'error',
+      code: 'portal_failed',
+      message: 'Защищённое соединение прервалось. Создайте новый QR.',
+    });
+  }
+}
+
+function parsePortalEvent(raw: string): PortalEvent | null {
+  if (!raw || raw.length > 4096) return null;
+  try {
+    const value = JSON.parse(raw) as PortalEvent;
+    return value && typeof value === 'object' && typeof value.type === 'string' ? value : null;
+  } catch {
+    return null;
+  }
 }

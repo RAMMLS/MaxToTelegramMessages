@@ -8,6 +8,14 @@ export const maxSessions = sqliteTable('max_sessions', {
   updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
 });
 
+export const maxQrAttempts = sqliteTable('max_qr_attempts', {
+  ownerId: text('owner_id').primaryKey(),
+  encryptedPayload: text('encrypted_payload').notNull(),
+  iv: text('iv').notNull(),
+  expiresAt: integer('expires_at', { mode: 'timestamp_ms' }).notNull(),
+  updatedAt: integer('updated_at', { mode: 'timestamp_ms' }).notNull(),
+});
+
 export const portalEvents = sqliteTable(
   'portal_events',
   {
