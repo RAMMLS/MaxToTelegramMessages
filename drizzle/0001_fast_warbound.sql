@@ -1,0 +1,1 @@
+CREATE INDEX `idx_portal_events_owner_created` ON `portal_events` (`owner_id`,`created_at`);

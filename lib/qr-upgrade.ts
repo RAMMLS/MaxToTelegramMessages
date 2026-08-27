@@ -1,0 +1,25 @@
+import { waitUntil } from 'cloudflare:workers';
+import { attachQrSession } from '@/lib/max-qr-session';
+import { hasSameOrigin } from '@/lib/auth-utils';
+import { authorizePortalRequest } from '@/lib/portal-auth';
+import { claimQrAttempt, initializeSessionStore } from '@/lib/session-store';
+
+type WebSocketResponseInit = ResponseInit & { webSocket: WebSocket };
+
+export async function handleQrUpgrade(request: Request): Promise<Response> {
+  if (!hasSameOrigin(request)) return new Response('Forbidden', { status: 403 });
+
+  const authorization = authorizePortalRequest(request.headers);
+  if (!authorization.ok) return new Response('Unauthorized', { status: authorization.status });
+
+  await initializeSessionStore();
+  if (!(await claimQrAttempt(authorization.user.userId))) {
+    return new Response('Too many QR attempts', { status: 429 });
+  }
+
+  const pair = new WebSocketPair();
+  const [client, server] = Object.values(pair);
+  server.accept();
+  waitUntil(Promise.resolve().then(() => attachQrSession(server, authorization.user.userId)));
+  return new Response(null, { status: 101, webSocket: client } as WebSocketResponseInit);
+}
