@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 from typing import Any
 
@@ -97,7 +98,8 @@ async def test_refresh_installs_private_session_file(tmp_path: Path) -> None:
 
     assert changed is True
     assert load_session_file(path).viewer_id == 123
-    assert path.stat().st_mode & 0o077 == 0
+    if os.name == "posix":
+        assert path.stat().st_mode & 0o077 == 0
     assert fake.request is not None
     assert fake.request[1]["allow_redirects"] is False
     assert fake.request[1]["headers"]["Authorization"] == "Bearer " + "s" * 48
