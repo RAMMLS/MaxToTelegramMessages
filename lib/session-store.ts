@@ -7,6 +7,12 @@ export type StoredMaxSession = {
   deviceId: string;
 };
 
+export type StoredQrAttempt = {
+  sessionId: string;
+  expiresAt: number;
+  password: string | null;
+};
+
 type SessionRow = {
   encrypted_payload: string;
   iv: string;
@@ -35,6 +41,13 @@ export async function initializeSessionStore(): Promise<void> {
     )`),
     db.prepare(`CREATE INDEX IF NOT EXISTS idx_portal_events_owner_created
       ON portal_events(owner_id, created_at)`),
+    db.prepare(`CREATE TABLE IF NOT EXISTS max_qr_attempts (
+      owner_id TEXT PRIMARY KEY,
+      encrypted_payload TEXT NOT NULL,
+      iv TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )`),
   ]);
 }
 
@@ -85,6 +98,49 @@ export async function saveMaxSession(ownerId: string, session: StoredMaxSession)
     .bind(ownerId, encrypted.ciphertext, encrypted.iv, updatedAt)
     .run();
   return updatedAt;
+}
+
+export async function saveQrAttempt(ownerId: string, attempt: StoredQrAttempt): Promise<void> {
+  const encrypted = await encryptJson(attempt, requireEncryptionKey());
+  await requireDatabase()
+    .prepare(`INSERT INTO max_qr_attempts
+      (owner_id, encrypted_payload, iv, expires_at, updated_at)
+      VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(owner_id) DO UPDATE SET
+        encrypted_payload = excluded.encrypted_payload,
+        iv = excluded.iv,
+        expires_at = excluded.expires_at,
+        updated_at = excluded.updated_at`)
+    .bind(ownerId, encrypted.ciphertext, encrypted.iv, attempt.expiresAt, Date.now())
+    .run();
+}
+
+export async function getQrAttempt(ownerId: string, now = Date.now()): Promise<StoredQrAttempt | null> {
+  const row = await requireDatabase()
+    .prepare(`SELECT encrypted_payload, iv, expires_at
+      FROM max_qr_attempts WHERE owner_id = ?`)
+    .bind(ownerId)
+    .first<SessionRow & { expires_at: number }>();
+  if (!row) return null;
+  if (row.expires_at <= now) {
+    await deleteQrAttempt(ownerId);
+    return null;
+  }
+  return decryptJson<StoredQrAttempt>(
+    { ciphertext: row.encrypted_payload, iv: row.iv },
+    requireEncryptionKey(),
+  );
+}
+
+export async function deleteQrAttempt(ownerId: string, sessionId?: string): Promise<void> {
+  if (sessionId) {
+    const current = await getQrAttempt(ownerId, 0);
+    if (!current || current.sessionId !== sessionId) return;
+  }
+  await requireDatabase()
+    .prepare('DELETE FROM max_qr_attempts WHERE owner_id = ?')
+    .bind(ownerId)
+    .run();
 }
 
 export async function getLatestMaxSession(): Promise<{

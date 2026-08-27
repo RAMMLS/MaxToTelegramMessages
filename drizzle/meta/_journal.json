@@ -15,6 +15,13 @@
       "when": 1787813859393,
       "tag": "0001_fast_warbound",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "6",
+      "when": 1787827755567,
+      "tag": "0002_pale_green_goblin",
+      "breakpoints": true
     }
   ]
 }

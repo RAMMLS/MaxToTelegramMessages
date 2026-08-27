@@ -37,7 +37,7 @@ export class MaxProtocolClient {
     socket.addEventListener('error', () => this.rejectPending(new Error('MAX socket failed')));
   }
 
-  static async connect(): Promise<MaxProtocolClient> {
+  static async connect(deviceId = crypto.randomUUID()): Promise<MaxProtocolClient> {
     let response: Response;
     try {
       response = await fetch(MAX_SOCKET_URL, {
@@ -58,7 +58,7 @@ export class MaxProtocolClient {
     } catch {
       throw new MaxQrStageError('socket_accept');
     }
-    const client = new MaxProtocolClient(socket, crypto.randomUUID());
+    const client = new MaxProtocolClient(socket, deviceId);
     try {
       await client.request(6, client.initPayload());
     } catch {
@@ -290,11 +290,11 @@ export function attachQrSession(browserSocket: WebSocket, ownerId: string): void
   }
 }
 
-class MaxQrError extends Error {
+export class MaxQrError extends Error {
   constructor(readonly code: string) { super(code); }
 }
 
-class MaxQrStageError extends Error {
+export class MaxQrStageError extends Error {
   constructor(readonly stage: string) { super('MAX QR stage failed'); }
 }
 
@@ -314,14 +314,14 @@ function parseBrowserCommand(raw: string):
   return null;
 }
 
-function userFacingError(code: string): string {
+export function userFacingError(code: string): string {
   if (code === 'track.not.found') return 'QR-сессия истекла. Создайте новый код.';
   if (code === 'password2fa.wrong') return 'Неверный пароль двухэтапной защиты.';
   if (code === 'password_invalid') return 'Проверьте пароль и повторите попытку.';
   return 'Не удалось завершить вход в MAX. Создайте новый QR и попробуйте ещё раз.';
 }
 
-function safeErrorMessage(error: unknown): string {
+export function safeErrorMessage(error: unknown): string {
   if (!(error instanceof Error)) return 'non-error failure';
   const allowed = new Set([
     'MAX WebSocket upgrade failed',
