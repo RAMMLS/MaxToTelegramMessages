@@ -2,7 +2,7 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 export type ChatGPTUser = {
-  userId: string;
+  userId: string | null;
   displayName: string;
   email: string;
   fullName: string | null;
@@ -20,7 +20,7 @@ export async function getChatGPTUser(): Promise<ChatGPTUser | null> {
 export function getChatGPTUserFromHeaders(requestHeaders: Headers): ChatGPTUser | null {
   const userId = requestHeaders.get('oai-authenticated-user-id');
   const email = requestHeaders.get('oai-authenticated-user-email');
-  if (!userId || !email) return null;
+  if (!email) return null;
 
   const encodedFullName = requestHeaders.get('oai-authenticated-user-full-name');
   const fullName = encodedFullName &&
