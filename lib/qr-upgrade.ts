@@ -1,4 +1,3 @@
-import { waitUntil } from 'cloudflare:workers';
 import { attachQrSession } from '@/lib/max-qr-session';
 import { hasSameOrigin } from '@/lib/auth-utils';
 import { hasPortalSession, portalOwnerKey } from '@/lib/portal-session';
@@ -20,6 +19,6 @@ export async function handleQrUpgrade(request: Request): Promise<Response> {
   const pair = new WebSocketPair();
   const [client, server] = Object.values(pair);
   server.accept();
-  waitUntil(Promise.resolve().then(() => attachQrSession(server, ownerKey)));
+  attachQrSession(server, ownerKey);
   return new Response(null, { status: 101, webSocket: client } as WebSocketResponseInit);
 }

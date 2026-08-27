@@ -1,5 +1,25 @@
 import { describe, expect, it } from 'vitest';
 import { extractSession } from '@/lib/max-qr-result';
+import { acceptBinarySocket } from '@/lib/max-socket';
+
+describe('MAX QR transport', () => {
+  it('opts out of Blob delivery before accepting the outbound socket', () => {
+    const calls: string[] = [];
+    const socketState = {
+      binaryType: 'blob',
+    };
+    const socket = {
+      get binaryType() { return socketState.binaryType; },
+      set binaryType(value: string) { socketState.binaryType = value; },
+      accept() { calls.push(socketState.binaryType); },
+    } as WebSocket;
+
+    acceptBinarySocket(socket);
+
+    expect(socket.binaryType).toBe('arraybuffer');
+    expect(calls).toEqual(['arraybuffer']);
+  });
+});
 
 describe('MAX QR result extraction', () => {
   it('extracts only the login token, viewer ID and server-side device ID', () => {

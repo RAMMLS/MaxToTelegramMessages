@@ -1,6 +1,7 @@
-import { env, waitUntil } from 'cloudflare:workers';
+import { env } from 'cloudflare:workers';
 import { decodeMaxFrame, encodeMaxFrame, type MaxFrame } from '@/lib/max-protocol';
 import { extractSession } from '@/lib/max-qr-result';
+import { acceptBinarySocket } from '@/lib/max-socket';
 import { saveMaxSession } from '@/lib/session-store';
 
 type JsonObject = Record<string, unknown>;
@@ -37,16 +38,33 @@ export class MaxProtocolClient {
   }
 
   static async connect(): Promise<MaxProtocolClient> {
-    const response = await fetch(MAX_SOCKET_URL, {
-      headers: { Upgrade: 'websocket', Origin: MAX_WEB_ORIGIN },
-    });
+    let response: Response;
+    try {
+      response = await fetch(MAX_SOCKET_URL, {
+        headers: { Upgrade: 'websocket', Origin: MAX_WEB_ORIGIN },
+      });
+    } catch {
+      throw new MaxQrStageError('upgrade_fetch');
+    }
     if (response.status !== 101 || !response.webSocket) {
-      throw new Error('MAX WebSocket upgrade failed');
+      throw new MaxQrStageError('upgrade_rejected');
     }
     const socket = response.webSocket;
-    socket.accept();
+    // Cloudflare Workers changed binary WebSocket messages to Blob by default
+    // in 2026. MAX protocol frames are decoded synchronously, so explicitly
+    // retain the legacy ArrayBuffer delivery mode before accepting the socket.
+    try {
+      acceptBinarySocket(socket);
+    } catch {
+      throw new MaxQrStageError('socket_accept');
+    }
     const client = new MaxProtocolClient(socket, crypto.randomUUID());
-    await client.request(6, client.initPayload());
+    try {
+      await client.request(6, client.initPayload());
+    } catch {
+      client.close();
+      throw new MaxQrStageError('init_command');
+    }
     return client;
   }
 
@@ -148,6 +166,8 @@ export function attachQrSession(browserSocket: WebSocket, ownerId: string): void
     console.warn('MAX QR login failed', {
       code,
       errorType: error instanceof Error ? error.name : typeof error,
+      errorMessage: safeErrorMessage(error),
+      stage: error instanceof MaxQrStageError ? error.stage : 'session',
     });
     emit({ type: 'error', code, message: userFacingError(code) });
     closeMaxClient();
@@ -161,12 +181,12 @@ export function attachQrSession(browserSocket: WebSocket, ownerId: string): void
   };
 
   browserSocket.addEventListener('message', (event) => {
-    waitUntil(handleBrowserMessage(event).catch(fail));
+    void handleBrowserMessage(event).catch(fail);
   });
   browserSocket.addEventListener('close', closeMaxClient);
   browserSocket.addEventListener('error', closeMaxClient);
 
-  waitUntil(start().catch(fail));
+  void start().catch(fail);
 
   async function start(): Promise<void> {
     emit({ type: 'connecting' });
@@ -274,6 +294,10 @@ class MaxQrError extends Error {
   constructor(readonly code: string) { super(code); }
 }
 
+class MaxQrStageError extends Error {
+  constructor(readonly stage: string) { super('MAX QR stage failed'); }
+}
+
 function parseBrowserCommand(raw: string):
   | { type: 'poll' | 'cancel' }
   | { type: 'password'; password: string }
@@ -295,6 +319,23 @@ function userFacingError(code: string): string {
   if (code === 'password2fa.wrong') return 'Неверный пароль двухэтапной защиты.';
   if (code === 'password_invalid') return 'Проверьте пароль и повторите попытку.';
   return 'Не удалось завершить вход в MAX. Создайте новый QR и попробуйте ещё раз.';
+}
+
+function safeErrorMessage(error: unknown): string {
+  if (!(error instanceof Error)) return 'non-error failure';
+  const allowed = new Set([
+    'MAX WebSocket upgrade failed',
+    'MAX socket closed',
+    'MAX socket failed',
+    'MAX request timed out',
+    'MAX sent a non-binary frame',
+    'MAX frame failed',
+    'MAX send failed',
+    'MAX returned an invalid QR session',
+    'MAX client is not ready',
+    'MAX QR session is not ready',
+  ]);
+  return allowed.has(error.message) ? error.message : 'redacted failure';
 }
 
 function asObject(value: unknown): JsonObject | null {
