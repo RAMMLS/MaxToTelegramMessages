@@ -1,4 +1,4 @@
-import { env } from 'cloudflare:workers';
+import { env, waitUntil } from 'cloudflare:workers';
 import { decodeMaxFrame, encodeMaxFrame, type MaxFrame } from '@/lib/max-protocol';
 import { extractSession } from '@/lib/max-qr-result';
 import { acceptBinarySocket } from '@/lib/max-socket';
@@ -181,12 +181,12 @@ export function attachQrSession(browserSocket: WebSocket, ownerId: string): void
   };
 
   browserSocket.addEventListener('message', (event) => {
-    void handleBrowserMessage(event).catch(fail);
+    waitUntil(handleBrowserMessage(event).catch(fail));
   });
   browserSocket.addEventListener('close', closeMaxClient);
   browserSocket.addEventListener('error', closeMaxClient);
 
-  void start().catch(fail);
+  waitUntil(start().catch(fail));
 
   async function start(): Promise<void> {
     emit({ type: 'connecting' });
