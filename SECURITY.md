@@ -39,6 +39,11 @@ Security fixes применяются к выпущенной ветке `main`.
   соединения; без текста, имён, названий чатов и MAX/Telegram ID;
 - process lock имеет POSIX `flock` и Windows `msvcrt` backend;
 - state/session/env файлы исключены из Git.
+- QR-портал не зависит от учётной записи ChatGPT: доступ выдаёт отдельный
+  32+ символьный secret, после проверки браузер получает только подписанную
+  `HttpOnly; Secure; SameSite=Strict` cookie на 12 часов;
+- login QR-портала ограничен десятью попытками на IP за 10 минут, а status и
+  WebSocket QR повторно проверяют серверную сессию;
 - session и state paths ограничены, безопасно expand-ятся и не могут совпадать;
 - CI без вывода совпадения блокирует Telegram-token-shaped значения и tracked `.env`;
   перед release вся история дополнительно проверяется Gitleaks.

@@ -26,6 +26,7 @@ from max_to_telegram.parser import ChatPolicy, MessageParser
 from max_to_telegram.protocol import ProtocolError
 from max_to_telegram.public_probe import PublicProbeError, probe_max_public
 from max_to_telegram.reporting import DailyReporter
+from max_to_telegram.session_sync import SessionSyncError, refresh_session_from_portal
 from max_to_telegram.telegram import TelegramError, TelegramRetryExhausted, TelegramSender
 
 logger = logging.getLogger(__name__)
@@ -257,8 +258,15 @@ def main(argv: list[str] | None = None) -> int:
             purpose=purpose,
         )
         local_session: LocalMaxSession | None = None
-        redacted_secrets = [settings.max_auth_token or "", settings.telegram_bot_token or ""]
+        redacted_secrets = [
+            settings.max_auth_token or "",
+            settings.max_session_sync_token or "",
+            settings.max_session_site_access_token or "",
+            settings.telegram_bot_token or "",
+        ]
         if purpose == "runtime":
+            if settings.max_session_sync_url and not args.check_config:
+                asyncio.run(refresh_session_from_portal(settings))
             local_session = load_local_session(settings)
             redacted_secrets.append(local_session.credentials.token)
         configure_logging(
@@ -306,6 +314,7 @@ def main(argv: list[str] | None = None) -> int:
         MaxClientError,
         ProtocolError,
         PublicProbeError,
+        SessionSyncError,
         TelegramError,
     ) as exc:
         print(f"max-to-telegram: {exc}", file=sys.stderr)

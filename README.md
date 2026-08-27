@@ -18,6 +18,8 @@
 ## Что реализовано
 
 - импорт существующей MAX web-сессии из `.env` или защищённого JSON-файла;
+- приватный Sites-портал для входа в MAX по QR без копирования session token;
+- AES-GCM шифрование MAX-сессии в D1 и защищённая синхронизация на bridge;
 - бинарный protocol v10: MessagePack, LZ4, 10-байтовый заголовок;
 - WebSocket init/login, ping/ack, reconnect с exponential backoff и jitter;
 - немедленный reconnect при отказе фонового application keepalive;
@@ -58,7 +60,8 @@
 - существующий профиль и авторизованная web-сессия MAX;
 - Telegram-бот и целевой Telegram `chat_id`;
 - Linux, macOS или Windows с поддержкой Python-зависимостей проекта. На Windows
-  пакет автоматически устанавливает IANA timezone-базу `tzdata`.
+  пакет автоматически устанавливает IANA timezone-базу `tzdata`;
+- для разработки QR-портала: Node.js 22+ и pnpm 11.
 
 ## Быстрый старт
 
@@ -135,10 +138,63 @@ protocol/state или запроса Telegram. Исчерпание retry из-�
 python -m max_to_telegram
 ```
 
-## MAX-аутентификация
+## MAX-аутентификация через защищённый QR-портал
 
-Мост не автоматизирует телефон, CAPTCHA, OTP или 2FA. Он импортирует сессию,
-которую пользователь уже создал в `https://web.max.ru/`.
+Предпочтительный путь — портал в OpenAI Sites с собственным кодом доступа.
+Так человеку, который сканирует QR, не нужна учётная запись ChatGPT: внешний
+адрес открыт, но интерфейс, status API и WebSocket QR закрыты подписанной
+12-часовой сессией портала. Портал создаёт QR напрямую через
+`wss://api.oneme.ru/websocket`, держит `trackId` и
+исходный MAX WebSocket только на сервере, а после подтверждения шифрует
+`viewerId`, token и `deviceId` алгоритмом AES-GCM в D1. Session token не
+возвращается в браузер и не попадает в URL.
+
+Порядок для владельца аккаунта:
+
+1. Открыть адрес портала и ввести отдельный код доступа владельца моста.
+2. Нажать «Создать QR для входа».
+3. В мобильном MAX открыть сканер QR и подтвердить вход.
+4. Дождаться статуса «Готово». Если включена 2FA, ввести пароль в защищённую
+   форму портала.
+
+Код портала хранится только как secret окружения `MAX_PORTAL_ACCESS_KEY` и
+должен содержать не менее 32 случайных символов. Login ограничен десятью
+попытками на IP за 10 минут; cookie имеет `HttpOnly`, `Secure` и
+`SameSite=Strict`.
+
+Bridge получает последнюю сессию по отдельному HTTPS endpoint с независимым
+bearer secret приложения в `Authorization`. Для alwaysdata задаются только в
+закрытом env-файле:
+
+```dotenv
+MAX_SESSION_FILE=.max-session.json
+MAX_SESSION_SYNC_URL=https://your-site.example/api/bridge/session
+MAX_SESSION_SYNC_TOKEN=replace-with-application-bearer-secret
+```
+
+`MAX_SESSION_SITE_ACCESS_TOKEN` остаётся опциональным только для установки,
+где весь Sites-проект дополнительно закрыт системной политикой доступа.
+
+При старте bridge скачивает сессию, проверяет схему ответа и атомарно сохраняет
+локальный файл с правами `0600`. Redirect запрещён, а прежний валидный файл
+используется только при временной недоступности портала или до первого QR-входа.
+После обновления QR перезапустите service, если supervisor не сделал это сам.
+
+Исходники портала находятся в `app/`, `lib/`, `worker.ts`; миграции D1 — в
+`drizzle/`. Локальные проверки:
+
+```bash
+pnpm install --frozen-lockfile
+pnpm test:web
+pnpm exec tsc --noEmit
+pnpm lint:web
+pnpm build
+```
+
+## Ручной импорт MAX-сессии
+
+Если портал недоступен, мост по-прежнему умеет импортировать сессию, которую
+пользователь уже создал в `https://web.max.ru/`.
 
 После появления профиля:
 
@@ -266,6 +322,12 @@ MAX_VIEWER_ID=123456789
 MAX_AUTH_TOKEN=replace-with-max-token
 MAX_DEVICE_ID=123e4567-e89b-12d3-a456-426614174000
 
+# Альтернатива прямым credentials: защищённая синхронизация из Sites.
+# MAX_SESSION_FILE=.max-session.json
+# MAX_SESSION_SYNC_URL=https://your-site.example/api/bridge/session
+# MAX_SESSION_SYNC_TOKEN=replace-with-application-bearer-secret
+# MAX_SESSION_SITE_ACCESS_TOKEN=replace-with-optional-private-sites-service-token
+
 MAX_WS_URL=wss://api.oneme.ru/websocket
 MAX_ALLOW_CUSTOM_WS_URL=false
 MAX_APP_VERSION=26.8.8
@@ -363,6 +425,10 @@ mypy --platform win32 src
 pip-audit --strict --progress-spinner=off .
 pytest
 pytest --cov=max_to_telegram --cov-report=term-missing --cov-fail-under=85
+pnpm test:web
+pnpm exec tsc --noEmit
+pnpm lint:web
+pnpm build
 git diff --check
 ```
 

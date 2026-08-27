@@ -158,6 +158,63 @@ def test_session_file_can_replace_direct_credentials() -> None:
     assert settings.max_viewer_id is None
 
 
+def test_configures_protected_portal_session_sync() -> None:
+    settings = Settings.from_env(
+        {
+            "MAX_SESSION_FILE": ".max-session.json",
+            "MAX_SESSION_SYNC_URL": "https://portal.example/api/bridge/session",
+            "MAX_SESSION_SYNC_TOKEN": "s" * 48,
+            "MAX_DISCOVERY_MODE": "true",
+        }
+    )
+
+    assert settings.max_session_sync_url == "https://portal.example/api/bridge/session"
+    assert settings.safe_summary()["auth_source"] == "portal-sync"
+    assert "s" * 48 not in repr(settings)
+
+
+def test_private_sites_access_token_requires_sync_url() -> None:
+    with pytest.raises(ConfigError, match="MAX_SESSION_SITE_ACCESS_TOKEN"):
+        Settings.from_env(
+            {
+                "MAX_SESSION_FILE": ".max-session.json",
+                "MAX_SESSION_SITE_ACCESS_TOKEN": "p" * 48,
+                "MAX_DISCOVERY_MODE": "true",
+            }
+        )
+
+
+def test_requires_complete_portal_sync_pair() -> None:
+    with pytest.raises(ConfigError, match="must be set together"):
+        Settings.from_env(
+            {
+                "MAX_SESSION_FILE": ".max-session.json",
+                "MAX_SESSION_SYNC_URL": "https://portal.example/api/bridge/session",
+                "MAX_DISCOVERY_MODE": "true",
+            }
+        )
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://portal.example/api/bridge/session",
+        "https://user:password@portal.example/api/bridge/session",
+        "https://portal.example/api/bridge/session#fragment",
+    ],
+)
+def test_rejects_unsafe_portal_sync_url(url: str) -> None:
+    with pytest.raises(ConfigError, match="MAX_SESSION_SYNC_URL"):
+        Settings.from_env(
+            {
+                "MAX_SESSION_FILE": ".max-session.json",
+                "MAX_SESSION_SYNC_URL": url,
+                "MAX_SESSION_SYNC_TOKEN": "s" * 48,
+                "MAX_DISCOVERY_MODE": "true",
+            }
+        )
+
+
 def test_rejects_same_session_and_state_path() -> None:
     with pytest.raises(ConfigError, match="must be different files"):
         Settings.from_env(

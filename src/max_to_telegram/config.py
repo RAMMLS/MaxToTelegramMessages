@@ -32,6 +32,8 @@ _MAX_DOTENV_BYTES = 64 * 1024
 _MAX_CHAT_IDS_CHARS = 64 * 1024
 _MAX_SELECTED_CHATS = 1_000
 _MAX_WS_URL_CHARS = 2_048
+_MAX_SYNC_URL_CHARS = 2_048
+_MAX_SYNC_TOKEN_CHARS = 512
 _MAX_APP_VERSION_CHARS = 64
 _MAX_LOCALE_CHARS = 32
 _MAX_CONFIG_PATH_CHARS = 4_096
@@ -141,6 +143,9 @@ class Settings:
     max_auth_token: str | None = field(default=None, repr=False)
     max_device_id: str | None = None
     max_session_file: Path | None = None
+    max_session_sync_url: str | None = None
+    max_session_sync_token: str | None = field(default=None, repr=False)
+    max_session_site_access_token: str | None = field(default=None, repr=False)
     max_chat_ids: frozenset[int] = frozenset()
     discovery_mode: bool = False
     telegram_bot_token: str | None = field(default=None, repr=False)
@@ -215,6 +220,10 @@ class Settings:
             max_session_file=(
                 _expand_config_path("MAX_SESSION_FILE", session_raw) if session_raw else None
             ),
+            max_session_sync_url=source.get("MAX_SESSION_SYNC_URL", "").strip() or None,
+            max_session_sync_token=source.get("MAX_SESSION_SYNC_TOKEN", "").strip() or None,
+            max_session_site_access_token=source.get("MAX_SESSION_SITE_ACCESS_TOKEN", "").strip()
+            or None,
             max_chat_ids=_parse_chat_ids(source.get("MAX_CHAT_IDS")),
             discovery_mode=_parse_bool(
                 "MAX_DISCOVERY_MODE", source.get("MAX_DISCOVERY_MODE"), default=False
@@ -285,6 +294,52 @@ class Settings:
                 errors.append(
                     "choose either MAX_VIEWER_ID with MAX_AUTH_TOKEN or MAX_SESSION_FILE, not both"
                 )
+            sync_parts = (
+                self.max_session_sync_url is not None,
+                self.max_session_sync_token is not None,
+            )
+            if any(sync_parts) and not all(sync_parts):
+                errors.append(
+                    "MAX_SESSION_SYNC_URL and MAX_SESSION_SYNC_TOKEN must be set together"
+                )
+            if all(sync_parts) and self.max_session_file is None:
+                errors.append("MAX_SESSION_FILE is required when remote session sync is enabled")
+            if self.max_session_sync_url is not None:
+                try:
+                    parsed_sync_url = urlparse(self.max_session_sync_url)
+                    _ = parsed_sync_url.port
+                except ValueError:
+                    parsed_sync_url = None
+                if len(self.max_session_sync_url) > _MAX_SYNC_URL_CHARS or _has_control_characters(
+                    self.max_session_sync_url
+                ):
+                    errors.append("MAX_SESSION_SYNC_URL is too long or contains control characters")
+                elif parsed_sync_url is None:
+                    errors.append("MAX_SESSION_SYNC_URL is malformed")
+                elif parsed_sync_url.scheme != "https" or not parsed_sync_url.hostname:
+                    errors.append("MAX_SESSION_SYNC_URL must be an absolute https:// URL")
+                elif parsed_sync_url.username is not None or parsed_sync_url.password is not None:
+                    errors.append("MAX_SESSION_SYNC_URL must not contain user information")
+                elif parsed_sync_url.fragment:
+                    errors.append("MAX_SESSION_SYNC_URL must not contain a fragment")
+            if self.max_session_sync_token is not None and (
+                not 32 <= len(self.max_session_sync_token) <= _MAX_SYNC_TOKEN_CHARS
+                or _has_control_characters(self.max_session_sync_token)
+                or self.max_session_sync_token != self.max_session_sync_token.strip()
+            ):
+                errors.append(
+                    "MAX_SESSION_SYNC_TOKEN must be 32..512 characters without whitespace controls"
+                )
+            if self.max_session_site_access_token is not None and (
+                self.max_session_sync_url is None
+                or not 32 <= len(self.max_session_site_access_token) <= _MAX_SYNC_TOKEN_CHARS
+                or _has_control_characters(self.max_session_site_access_token)
+                or self.max_session_site_access_token != self.max_session_site_access_token.strip()
+            ):
+                errors.append(
+                    "MAX_SESSION_SITE_ACCESS_TOKEN requires remote sync and must be "
+                    "32..512 characters without whitespace controls"
+                )
             if self.max_session_file is not None and self.max_session_file == self.state_db:
                 errors.append("MAX_SESSION_FILE and BRIDGE_STATE_DB must be different files")
             if not all(direct_auth_parts) and self.max_session_file is None:
@@ -342,7 +397,16 @@ class Settings:
             "custom_max_ws_url": self.max_allow_custom_ws_url,
             "max_app_version": self.max_app_version,
             "max_locale": self.max_locale,
-            "auth_source": "file" if self.max_session_file else "environment",
+            "auth_source": (
+                "portal-sync"
+                if self.max_session_sync_url
+                else "file"
+                if self.max_session_file
+                else "environment"
+            ),
+            "session_sync_configured": bool(
+                self.max_session_sync_url and self.max_session_sync_token
+            ),
             "device_id_configured": bool(self.max_device_id),
             "selected_chat_count": len(self.max_chat_ids),
             "discovery_mode": self.discovery_mode,
