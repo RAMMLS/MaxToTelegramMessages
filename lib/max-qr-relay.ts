@@ -34,7 +34,8 @@ export async function callQrRelay(command: RelayCommand): Promise<RelayEvent> {
       body: JSON.stringify(command.type === 'start' ? {} : command),
       signal: AbortSignal.timeout(30_000),
     });
-  } catch {
+  } catch (error) {
+    console.warn('MAX QR relay transport failed', relayTransportMetadata(error));
     throw new QrRelayError('relay_unavailable', 502);
   }
   const declaredLength = Number(response.headers.get('content-length') ?? 0);
@@ -116,6 +117,20 @@ function relayToken(): string {
   const token = env.MAX_QR_RELAY_TOKEN;
   if (!token || token.length < 32) throw new QrRelayError('relay_not_configured', 503);
   return token;
+}
+
+function relayTransportMetadata(error: unknown): Record<string, string | number> {
+  if (!(error instanceof Error)) return { errorType: typeof error };
+  const metadata: Record<string, string | number> = {
+    errorType: error.name,
+    errorMessage: error.message.slice(0, 256),
+  };
+  const cause = error.cause;
+  if (cause && typeof cause === 'object') {
+    const code = Reflect.get(cause, 'code');
+    if (typeof code === 'string' || typeof code === 'number') metadata.causeCode = code;
+  }
+  return metadata;
 }
 
 function asObject(value: unknown): Record<string, unknown> | null {
