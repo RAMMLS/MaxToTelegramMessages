@@ -6,5 +6,7 @@ declare namespace Cloudflare {
     MAX_PORTAL_ACCESS_KEY?: string;
     MAX_SESSION_ENCRYPTION_KEY?: string;
     MAX_WEB_APP_VERSION?: string;
+    MAX_QR_RELAY_URL?: string;
+    MAX_QR_RELAY_TOKEN?: string;
   }
 }

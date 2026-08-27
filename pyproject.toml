@@ -50,6 +50,7 @@ Repository = "https://github.com/RAMMLS/MaxToTelegramMessages.git"
 
 [project.scripts]
 max-to-telegram = "max_to_telegram.cli:main"
+max-to-telegram-qr-relay = "max_to_telegram.qr_relay:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
