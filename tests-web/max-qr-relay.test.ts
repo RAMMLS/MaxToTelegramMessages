@@ -32,6 +32,7 @@ describe('MAX QR relay client', () => {
     const [url, init] = fetchMock.mock.calls[0] as [URL, RequestInit];
     expect(url.toString()).toBe('https://relay.example/v1/qr/start');
     expect(new Headers(init.headers).get('authorization')).toBe(`Bearer ${'r'.repeat(48)}`);
+    expect(init.redirect).toBe('manual');
   });
 
   it('accepts only a complete relay session payload', async () => {
@@ -54,6 +55,16 @@ describe('MAX QR relay client', () => {
 
     await expect(callQrRelay({ type: 'poll', sessionId: 'session-1' }))
       .rejects.toMatchObject({ code: 'relay_invalid_response' });
+  });
+
+  it('rejects relay redirects without following them', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(null, {
+      status: 302,
+      headers: { Location: 'https://attacker.example/collect' },
+    })));
+
+    await expect(callQrRelay({ type: 'start' }))
+      .rejects.toMatchObject({ code: 'relay_redirect_rejected', status: 502 });
   });
 
   it('logs bounded transport metadata without changing the public error', async () => {

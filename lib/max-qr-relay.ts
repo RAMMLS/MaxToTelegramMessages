@@ -26,7 +26,7 @@ export async function callQrRelay(command: RelayCommand): Promise<RelayEvent> {
   try {
     response = await fetch(new URL(`/v1/qr/${endpoint}`, baseUrl), {
       method: 'POST',
-      redirect: 'error',
+      redirect: 'manual',
       headers: {
         Authorization: `Bearer ${relayToken()}`,
         'Content-Type': 'application/json',
@@ -37,6 +37,9 @@ export async function callQrRelay(command: RelayCommand): Promise<RelayEvent> {
   } catch (error) {
     console.warn('MAX QR relay transport failed', relayTransportMetadata(error));
     throw new QrRelayError('relay_unavailable', 502);
+  }
+  if (response.status >= 300 && response.status < 400) {
+    throw new QrRelayError('relay_redirect_rejected', 502);
   }
   const declaredLength = Number(response.headers.get('content-length') ?? 0);
   if (declaredLength > 65_536) throw new QrRelayError('relay_invalid_response');
